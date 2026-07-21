@@ -35,22 +35,25 @@ full model of what lives where and how changes propagate.
 python run.py        # starts the server and opens the browser
 ```
 
-Then follow the wizard (strict order — the map comes before any date):
+Then follow the 4-step wizard (strict order — the map comes before any date):
 
 1. **Route** — drop a `.gpx`. Runs terrain/geometry (L1), ride-history road
-   quality + stop hotspots (L2), OSM hazards (L3, offline cache).
-2. **Form & load** — pulls 14-day load, CTL/ATL/TSB and FTP from intervals.icu
-   (or enter FTP manually). Pick your training phase.
-3. **Session type** — a menu ranked by `suggest_workout` (TSB gate + phase bias
-   + novelty), each with a seed session.
-4. **Design & map** — the deterministic designer places the interval body on the
+   quality + stop hotspots (L2), OSM hazards (L3, offline cache). *Or* start a
+   **no-route, time-based workout** (no GPX, no map) with the button below.
+2. **Your form & workout** — pulls 14-day load, CTL/ATL/TSB and FTP from
+   intervals.icu (or enter FTP manually), pick your phase, then choose from a
+   **searchable workout picker** ranked by `suggest_workout` (TSB gate + phase
+   bias + novelty + terrain) and filtered to workouts that fit the route.
+3. **Design & map** — the deterministic designer places the interval body on the
    cleanest blocks that fit (reusing the skill's `compute_effort` /
    `placement_blocks`), assembles warm-up/bridges/cooldown with +5 km lap-button
-   padding, and renders the interactive map in an iframe. Drag bands / swap the
-   session / tick misclassified stops on the map, then hit its **Send… to Claude**
-   buttons — the app catches them (via a `sendPrompt`→`postMessage` bridge),
-   re-validates, and rebuilds. Road corrections can be saved to your dossier.
-5. **Schedule** — only now pick a date. Creates the `WORKOUT` event on
+   padding, and renders a **native SVG map** (no iframe). Adjust it in-app:
+   drag/nudge segments in the timeline & table, rename the workout, click a
+   hazard to open Street View or mark it *"I ride through this"* (a veto that
+   re-scores and re-designs), and overlay **how fast you actually rode here**
+   from a past ride. Every edit re-validates server-side. Road corrections can
+   be saved to your dossier.
+4. **Schedule** — only now pick a date. Creates the `WORKOUT` event on
    intervals.icu, shows nearby calendar items, and reports the parsed load.
 
 **Maintenance** (bottom of the page): one-click cache rebuilds — refresh ride
@@ -59,30 +62,34 @@ basemap (arterial + residential + cycleway, since a local app has no `.skill`
 size budget), workout bank — plus **Sync engine code from skill**. These wrap
 the skill's builder scripts and write into the app's own `engine/data/cache/`.
 
-The map is rendered at **full route resolution** with a denser near-route street
-budget (the app serves a file, so it isn't bound by the inline-widget size cap
-the skill lives under). Rebuild the dense street cache once (needs internet) to
+The map is drawn natively in the browser (`web/map.js`) at **full route
+resolution** with a denser near-route street budget (a local app has no `.skill`
+size cap to fit under). Rebuild the dense street cache once (needs internet) to
 get the richer basemap; the full-res route line works immediately.
 
 ## Architecture
 
 ```
-server/
-  config.py    paths (.env) + shared-skill locations
-  engine.py    thin wrappers over the skill's importable functions (L1/L2/L3/L5,
-               objective ranking, bank candidates, composite scoring, load summary)
+server/            FastAPI backend (no LLM)
+  config.py    paths (.env) + shared-skill locations + design constants
+  engine.py    thin in-process wrappers over the skill's importable functions
+               (L1/L2/L3/L5, objective ranking, bank candidates, composite scoring)
   designer.py  deterministic session designer (choose → place → assemble → render)
   syntax.py    segments → intervals.icu distance syntax + guardrail validator
-  mapbuild.py  runs build_map_widget.py, injects the sendPrompt bridge shim
-  feedback.py  parse adjusted-plan / road-corrections text from the map
-  icu.py       intervals.icu REST client (Basic auth; GPX download, never streams)
+  mapdata.py   reshapes cached analysis into JSON for the native SVG map
+  rides.py     matches past-ride history to the route; serves speed tracks (overlay)
+  icu.py       intervals.icu REST client (Basic auth; reconstructs GPX, never streams)
   jobs.py      background maintenance jobs + sync-from-skill + dossier append
   main.py      FastAPI routes + in-memory route sessions
-web/           single-page wizard (vanilla JS, no build step)
+web/           single-page wizard (vanilla JS, no build step); native SVG map in map.js
 engine/        vendored copy of the skill (scripts + data caches + template + refs)
 ```
 
-See [SYNC.md](SYNC.md) for how the vendored `engine/` stays in step with the skill.
+**Full maintainer reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the
+analysis-layer model (L1–L6), request/data flow, module responsibilities, the
+guardrails, and a "where to make a change" table. See [SYNC.md](SYNC.md) for how the
+vendored `engine/` stays in step with the skill, and
+[docs/ROADMAP.md](docs/ROADMAP.md) for proposed features.
 
 ### Guardrails
 Every design and every map adjustment is validated before it can reach the
