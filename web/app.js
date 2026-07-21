@@ -641,7 +641,7 @@ function renderFast(r) {
   const covered = segs.reduce((a, s) => a + s.length_km, 0);
   info.innerHTML = `Across <b>${r.n_rides}</b> ride${r.n_rides > 1 ? "s" : ""} on this route: <b>${segs.length}</b> ` +
     `stretch${segs.length === 1 ? "" : "es"} where a ride <b>averaged</b> over <b>${r.threshold}</b> km/h ` +
-    `(per ${Math.round(r.bin_km * 1000)} m, ${covered.toFixed(1)} of ${r.route_km} km). Deeper pink = faster.`;
+    `(per ${Math.round(r.bin_km * 1000)} m, ${covered.toFixed(1)} of ${r.route_km} km).`;
   segs.forEach(s => {
     list.appendChild(el("div", "fast-row",
       `<b>${s.peak_kmh} km/h</b>` +

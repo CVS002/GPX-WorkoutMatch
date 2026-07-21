@@ -179,11 +179,6 @@
     const binAt = (km) => F.bins[Math.max(0, Math.min(F.bins.length - 1, Math.floor(km / bk)))];
     const isFast = (km) => { const v = binAt(km); return v && v.kmh != null && v.kmh >= th; };
     const pt = (p) => { const q = M.prj(p[0], p[1]); return q[0].toFixed(1) + " " + q[1].toFixed(1); };
-    const col = (v) => {   // threshold → +15 km/h : amber → deep pink
-      const t = Math.max(0, Math.min(1, (v - th) / 15));
-      const l = (a, b) => Math.round(a + (b - a) * t);
-      return `rgb(${l(255, 209)},${l(152, 20)},${l(0, 91)})`;
-    };
     let i = 0;
     while (i < P.length - 1) {
       if (!isFast(P[i][2])) { i++; continue; }
@@ -193,7 +188,7 @@
         const b = binAt(P[j][2]); if (b.kmh > peak) { peak = b.kmh; date = b.date; }
       }
       if (j > i) {
-        const pa = mk("path", { d, fill: "none", stroke: col(peak), "stroke-width": 5.5, opacity: .92, "stroke-linecap": "round", "stroke-linejoin": "round" });
+        const pa = mk("path", { d, fill: "none", stroke: "#d1145b", "stroke-width": 5.5, opacity: .92, "stroke-linecap": "round", "stroke-linejoin": "round" });
         pa.appendChild(tip(`⚡ best avg ${peak} km/h${date ? " · " + date : ""}`));
         g.appendChild(pa); i = j;
       } else i++;
