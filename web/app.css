@@ -113,19 +113,6 @@ input, select { font: inherit; padding: 7px 9px; border: 1px solid var(--border)
 .map-pop .mp-veto { color: var(--good); }
 .map-pop .mp-veto:hover { border-color: var(--good); }
 
-/* Street View modal */
-.modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; }
-.modal.hidden { display: none; }
-.modal-back { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
-.modal-card { position: relative; z-index: 1; width: min(880px, 92vw); background: var(--card);
-  border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
-.modal-hd { display: flex; align-items: center; gap: 10px; padding: 9px 13px; border-bottom: 1px solid var(--border); }
-.modal-hd b { font-size: 14px; }
-.modal-hd .link { margin-left: auto; }
-.modal-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; }
-.modal-x:hover { color: var(--ink); }
-#svFrame { width: 100%; height: min(520px, 64vh); border: 0; display: block; background: var(--bg); }
-
 /* workout picker */
 .picker { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 #wsearch { flex: 1 1 320px; padding: 9px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--ink); }

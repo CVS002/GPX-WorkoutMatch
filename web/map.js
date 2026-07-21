@@ -201,7 +201,7 @@
     if (item.stop_rate != null) bits.push(`stops ${Math.round(item.stop_rate * 100)}% of passes`);
     pop.innerHTML = `<div class="mp-hd"><b>${name}</b><button class="mp-x" title="close">✕</button></div>` +
       `<div class="mp-sub">${bits.join(" · ")}</div>` +
-      `<div class="mp-act"><button class="mp-sv">Street View</button>` +
+      `<div class="mp-act"><button class="mp-sv">Street View ↗</button>` +
       `<button class="mp-veto" title="stop this counting against the route">I ride through this</button></div>`;
     M.wrap.appendChild(pop);
     // clamp within the wrap
@@ -234,20 +234,37 @@
   function wireZoomPan() {
     const svg = M.svg;
     svg.addEventListener("wheel", e => { e.preventDefault(); const [cx, cy] = toVB(e.clientX, e.clientY); zoomAt(cx, cy, e.deltaY < 0 ? 0.85 : 1 / 0.85); }, { passive: false });
-    let pan = null;
+    // A press only becomes a pan once it moves past THRESH px. Capturing the pointer
+    // on pointerdown (as we used to) makes Chromium retarget the click to the <svg>,
+    // which steals clicks from markers so their popovers never open. Defer capture
+    // until an actual drag begins, so a plain click stays a click and hits the marker.
+    const THRESH = 4;
+    let down = null, panning = false, didPan = false;
     svg.addEventListener("pointerdown", e => {
       if (e.target.closest && e.target.closest("[data-nozoom]")) return;
-      closePopover();
-      pan = { x: e.clientX, y: e.clientY, vx: M.vb.x, vy: M.vb.y };
-      svg.setPointerCapture(e.pointerId); svg.classList.add("grabbing");
+      down = { x: e.clientX, y: e.clientY, vx: M.vb.x, vy: M.vb.y, id: e.pointerId };
+      panning = false; didPan = false;
     });
     svg.addEventListener("pointermove", e => {
-      if (!pan) return; const r = svg.getBoundingClientRect();
-      M.vb.x = pan.vx - (e.clientX - pan.x) / r.width * M.vb.w;
-      M.vb.y = pan.vy - (e.clientY - pan.y) / r.height * M.vb.h; clampVB(); applyVB();
+      if (!down) return;
+      const dx = e.clientX - down.x, dy = e.clientY - down.y;
+      if (!panning) {
+        if (Math.abs(dx) + Math.abs(dy) < THRESH) return;
+        panning = true; didPan = true; closePopover();
+        svg.setPointerCapture(down.id); svg.classList.add("grabbing");
+      }
+      const r = svg.getBoundingClientRect();
+      M.vb.x = down.vx - dx / r.width * M.vb.w;
+      M.vb.y = down.vy - dy / r.height * M.vb.h; clampVB(); applyVB();
     });
-    const end = e => { if (pan) { pan = null; svg.classList.remove("grabbing"); try { svg.releasePointerCapture(e.pointerId); } catch (_) {} } };
+    const end = () => {
+      if (panning) { svg.classList.remove("grabbing"); try { svg.releasePointerCapture(down.id); } catch (_) {} }
+      down = null; panning = false;
+    };
     svg.addEventListener("pointerup", end); svg.addEventListener("pointercancel", end);
+    // Click on the empty map closes an open popover. Marker handlers stopPropagation,
+    // so their clicks never reach here; the didPan guard ignores the click after a drag.
+    svg.addEventListener("click", () => { if (didPan) { didPan = false; return; } closePopover(); });
   }
   function resetView() { M.vb = { x: 0, y: 0, w: VBW, h: VBH }; applyVB(); }
 

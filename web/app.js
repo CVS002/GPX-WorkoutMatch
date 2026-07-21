@@ -607,7 +607,7 @@ $("#clearRide").onclick = () => {
   postRide(); updateRideInfo(); renderRideList(state.rideMatches || []);
 };
 
-// ---- map: legend, zoom controls, hazard veto, Street View modal ----
+// ---- map: legend, zoom controls, hazard veto, Street View (new tab) ----
 const LEGEND = [
   { sw: `<span class='sw ln' style='background:#2e9e5b'></span>`, t: "clean", key: "effort" },
   { sw: `<span class='sw ln' style='background:#d99a2b'></span>`, t: "caution", key: "effort" },
@@ -651,19 +651,23 @@ async function applyVeto(km) {
   } catch (e) { $("#issues").innerHTML = `<div class='issue error'>${e.message}</div>`; }
 }
 
-// Street View lightbox
-const svEmbed = (pos) => `https://maps.google.com/maps?q=&layer=c&cbll=${pos[0]},${pos[1]}&cbp=11,0,0,0,0&output=svembed`;
+// Street View. Google serves its maps pages with X-Frame-Options: SAMEORIGIN, so
+// they can't be embedded in an iframe cross-origin. Opening as a top-level
+// navigation in a new tab is allowed (and needs no API key).
 const svExternal = (pos) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${pos[0]},${pos[1]}`;
-function openStreetView(pos, label) {
-  $("#svFrame").src = svEmbed(pos);
-  $("#svLoc").textContent = label ? "— " + label : "";
-  $("#svOpen").href = svExternal(pos);
-  $("#svModal").classList.remove("hidden");
+function openStreetView(pos, _label) {
+  // Synthesize an anchor click rather than window.open(...,"noopener"): a features
+  // string makes browsers treat it as a popup, which the popup blocker kills silently.
+  // A real anchor activation is a genuine navigation and is never blocked.
+  const a = document.createElement("a");
+  a.href = svExternal(pos);
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
-function closeStreetView() { $("#svModal").classList.add("hidden"); $("#svFrame").src = "about:blank"; }
-$("#svClose").onclick = closeStreetView;
-$("#svBack").onclick = closeStreetView;
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeStreetView(); WDMap.closePopover(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") WDMap.closePopover(); });
 
 $("#toDate").onclick = () => {
   if (!$("#dayChips").children.length) renderDayChips();
