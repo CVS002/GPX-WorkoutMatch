@@ -139,7 +139,18 @@ input, select { font: inherit; padding: 7px 9px; border: 1px solid var(--border)
 #spdThresh { width: 64px; text-align: right; }
 .ride-list { max-height: 170px; margin-bottom: 8px; }
 .ride-list:empty { display: none; }
-#clearRide { color: var(--err); }
+#clearRide, #clearFast { color: var(--err); }
+button.primary-ghost { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+button.primary-ghost:hover { background: var(--accent); color: var(--accent-ink); }
+
+/* fastest-stretches overview */
+.fast-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 7px; margin: 4px 0 16px; }
+.fast-list:empty { display: none; }
+.fast-row { display: flex; align-items: baseline; gap: 9px; padding: 7px 11px; border: 1px solid var(--border);
+  border-radius: 9px; background: var(--card); border-left: 4px solid #d1145b; }
+.fast-row b { color: #d1145b; white-space: nowrap; }
+.fast-row .fr-km { flex: 1 1 auto; }
+.fast-row .fr-date { white-space: nowrap; }
 
 /* interactive timeline (bands + elevation + draggable boundaries) */
 #timeline { margin: 4px 0 10px; touch-action: none; user-select: none; }

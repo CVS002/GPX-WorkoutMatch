@@ -28,14 +28,14 @@
 
   const M = {
     svg: null, wrap: null, opts: {},
-    data: null, segs: [], ride: null, rideThresh: 33,
-    vis: { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true },
+    data: null, segs: [], ride: null, rideThresh: 33, fast: null,
+    vis: { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false },
     g: {}, prj: null, XY: [], KM: [], vb: { x: 0, y: 0, w: VBW, h: VBH },
   };
 
   function mount(svg, opts) {
     M.svg = svg; M.wrap = svg.parentElement; M.opts = opts || {};
-    ["streets", "base", "ride", "work", "mark", "flag", "label"].forEach(name => {
+    ["streets", "base", "fast", "ride", "work", "mark", "flag", "label"].forEach(name => {
       const g = mk("g", {}); M.g[name] = g; svg.appendChild(g);
     });
     wireZoomPan();
@@ -169,6 +169,36 @@
       } else i++;
     }
   }
+  // best-ever speed across ALL rides, snapped to the route: highlight the
+  // stretches that clear the threshold, coloured amber→deep-pink by peak speed.
+  function drawFast() {
+    const g = M.g.fast; g.innerHTML = "";
+    const F = M.fast;
+    if (!M.vis.fast || !F || !F.bins || !F.bins.length) return;
+    const P = M.data.route, bk = F.binKm, th = F.threshold;
+    const binAt = (km) => F.bins[Math.max(0, Math.min(F.bins.length - 1, Math.floor(km / bk)))];
+    const isFast = (km) => { const v = binAt(km); return v && v.max_kmh != null && v.max_kmh >= th; };
+    const pt = (p) => { const q = M.prj(p[0], p[1]); return q[0].toFixed(1) + " " + q[1].toFixed(1); };
+    const col = (v) => {   // threshold → +15 km/h : amber → deep pink
+      const t = Math.max(0, Math.min(1, (v - th) / 15));
+      const l = (a, b) => Math.round(a + (b - a) * t);
+      return `rgb(${l(255, 209)},${l(152, 20)},${l(0, 91)})`;
+    };
+    let i = 0;
+    while (i < P.length - 1) {
+      if (!isFast(P[i][2])) { i++; continue; }
+      let d = "M" + pt(P[i]), j = i, peak = binAt(P[i][2]).max_kmh, date = binAt(P[i][2]).date;
+      while (j < P.length - 1 && isFast(P[j + 1][2])) {
+        j++; d += " L" + pt(P[j]);
+        const b = binAt(P[j][2]); if (b.max_kmh > peak) { peak = b.max_kmh; date = b.date; }
+      }
+      if (j > i) {
+        const pa = mk("path", { d, fill: "none", stroke: col(peak), "stroke-width": 5.5, opacity: .92, "stroke-linecap": "round", "stroke-linejoin": "round" });
+        pa.appendChild(tip(`⚡ best ${peak} km/h${date ? " · " + date : ""}`));
+        g.appendChild(pa); i = j;
+      } else i++;
+    }
+  }
   function drawLabels() {
     const g = M.g.label; g.innerHTML = "";
     if (!M.vis.labels && M.vis.labels === false) return;
@@ -182,7 +212,7 @@
   function tip(text) { const t = document.createElementNS(NS, "title"); t.textContent = text; return t; }
   function tipWrap(node, text) { node.appendChild(tip(text)); return node; }
 
-  function redrawDynamic() { drawWork(); drawFlags(); drawRide(); }
+  function redrawDynamic() { drawFast(); drawWork(); drawFlags(); drawRide(); }
   function redrawAll() { drawStreets(); drawBase(); drawMarkers(); drawLabels(); redrawDynamic(); }
 
   // ---- hazard popover (small card anchored near the marker) ----
@@ -276,6 +306,10 @@
     },
     setSegs(segs) { M.segs = (segs || []).map(s => ({ ...s })); if (M.data) redrawDynamic(); },
     setRide(track, thresh) { M.ride = track; if (thresh) M.rideThresh = thresh; if (M.data) drawRide(); },
+    setFast(overview) {
+      M.fast = overview ? { bins: overview.bins, binKm: overview.bin_km, threshold: overview.threshold } : null;
+      if (M.data) drawFast();
+    },
     setLayers(vis) { Object.assign(M.vis, vis); if (M.data) redrawAll(); },
     zoom(f) { zoomAt(M.vb.x + M.vb.w / 2, M.vb.y + M.vb.h / 2, f); },
     resetView, closePopover,

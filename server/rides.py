@@ -170,3 +170,98 @@ def track(name: str, max_pts: int = 1600) -> dict:
            round(spd * 3.6, 1) if spd is not None else None]
           for la, lo, spd, _ in pts[::step]]
     return {"track": tr, "activity_id": act, "points": len(tr)}
+
+
+def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
+                  bin_m: int = 200, near_m: float = 120.0) -> dict:
+    """Across EVERY past ride that overlaps this route, the fastest speed ever
+    ridden at each stretch of the route.
+
+    The route is split into bin_m bins along its own distance axis. For each
+    ride point within near_m of the route we keep the highest speed seen in the
+    bin it snaps to (with the date it happened). Partial-overlap rides count for
+    the stretches they cover. Returns the per-bin best plus the contiguous
+    segments that clear threshold_kmh — the "where can I actually hold speed"
+    view."""
+    rpts = engine.L1.parse_points(route_gpx)
+    empty = {"bins": [], "segments": [], "bin_km": bin_m / 1000,
+             "threshold": threshold_kmh, "n_rides": 0, "route_km": 0}
+    if len(rpts) < 2:
+        return empty
+    cum = engine.MW.cumdist(rpts)                # metres, aligned to rpts
+    total_m = cum[-1]
+    bin_km = bin_m / 1000
+    nbins = int(total_m // bin_m) + 1
+
+    # spatial index of route points by cell, for cheap nearest-point lookup
+    rindex: dict[str, list[int]] = {}
+    for i, p in enumerate(rpts):
+        rindex.setdefault(_cell(p[0], p[1]), []).append(i)
+    rtol_cells = _neigh({tuple(map(int, c.split(":"))) for c in rindex})
+
+    best: list = [None] * nbins                  # (kmh, date) per bin
+    n_rides = 0
+    for name, m in _index().items():
+        overlap = sum(1 for c in m.get("cells", [])
+                      if tuple(map(int, c.split(":"))) in rtol_cells)
+        if overlap < 3:                          # barely touches the route — skip
+            continue
+        try:
+            pts, _ = parse_ride(HISTORY_DIR / name, keep_every=2)
+        except ET.ParseError:
+            continue
+        if pts and all(x[2] is None for x in pts):
+            pts = _derive_speeds(pts)
+        date = m.get("date") or ""
+        used = False
+        for la, lo, spd, _ in pts:
+            if spd is None:
+                continue
+            ca, cb = round(la * CELL), round(lo * CELL)
+            bd = bi = None
+            for da in (-1, 0, 1):
+                for db in (-1, 0, 1):
+                    for i in rindex.get(f"{ca + da}:{cb + db}", ()):
+                        d = engine.L1.haversine_m(la, lo, rpts[i][0], rpts[i][1])
+                        if bd is None or d < bd:
+                            bd, bi = d, i
+            if bi is None or bd > near_m:
+                continue
+            b = min(nbins - 1, int(cum[bi] // bin_m))
+            kmh = spd * 3.6
+            if best[b] is None or kmh > best[b][0]:
+                best[b] = (kmh, date)
+            used = True
+        if used:
+            n_rides += 1
+
+    bins = [{"km": round(b * bin_km, 3),
+             "max_kmh": round(best[b][0], 1) if best[b] else None,
+             "date": best[b][1] if best[b] else None}
+            for b in range(nbins)]
+
+    # contiguous stretches at/above threshold; bridge a single sub-threshold bin
+    segments, i = [], 0
+    over = [bool(best[b]) and best[b][0] >= threshold_kmh for b in range(nbins)]
+    while i < nbins:
+        if not over[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < nbins and (over[j + 1] or (j + 2 < nbins and over[j + 2])):
+            j += 1
+        while j > i and not over[j]:             # trim a trailing bridge bin
+            j -= 1
+        seg = max(range(i, j + 1), key=lambda b: best[b][0] if best[b] else -1.0)
+        segments.append({
+            "km_start": round(i * bin_km, 2),
+            "km_end": round((j + 1) * bin_km, 2),
+            "length_km": round((j + 1 - i) * bin_km, 2),
+            "peak_kmh": round(best[seg][0], 1),
+            "date": best[seg][1],
+        })
+        i = j + 1
+
+    return {"bins": bins, "bin_km": round(bin_km, 3),
+            "route_km": round(total_m / 1000, 2), "threshold": threshold_kmh,
+            "n_rides": n_rides, "segments": segments}

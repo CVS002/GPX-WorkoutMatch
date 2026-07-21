@@ -4,7 +4,7 @@ const el = (t, c, h) => { const e = document.createElement(t); if (c) e.classNam
 const state = { routeId: null, ftp: 300, tsb: null, phase: "build", lastStim: null,
                 segs: [], rkm: 0, workouts: [], wcat: "all", wsearch: "",
                 bufferKm: 5, refSpeed: 30,     // overwritten from /api/health
-                rideTrack: null, rideFile: null, date: null };
+                rideTrack: null, rideFile: null, fastOverview: null, date: null };
 
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
@@ -150,6 +150,7 @@ async function loadMapData() {
     WDMap.load(md);
     WDMap.setSegs(state.segs);
     WDMap.setRide(state.rideTrack, parseFloat($("#spdThresh").value) || 33);
+    WDMap.setFast(state.fastOverview);
     buildLegend();
   } catch (e) { /* map stays blank; the rest of the design still works */ }
 }
@@ -600,11 +601,88 @@ function updateRideInfo() {
     `avg ${avg.toFixed(1)} km/h — pink on the map = faster than ${thresh}, purple = slower`;
 }
 
-$("#spdThresh").addEventListener("change", () => { postRide(); updateRideInfo(); });
+$("#spdThresh").addEventListener("change", () => {
+  postRide(); updateRideInfo();
+  if (state.fastOverview) refreshFastThreshold();
+});
 $("#clearRide").onclick = () => {
   state.rideTrack = null; state.rideFile = null;
   $("#clearRide").classList.add("hidden");
   postRide(); updateRideInfo(); renderRideList(state.rideMatches || []);
+};
+
+// ---- fastest stretches across ALL rides (route-aligned aggregate) ----
+$("#fastBtn").onclick = async () => {
+  if (state.mode === "blank" || !WDMap.hasData()) return;
+  const info = $("#fastInfo");
+  info.textContent = "aggregating every ride on this route… (the first run indexes your history — ~20 s)";
+  $("#fastList").innerHTML = "";
+  try {
+    const th = parseFloat($("#spdThresh").value) || 33;
+    const r = await api("/api/rides/fast", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ route_id: state.routeId, threshold: th }),
+    });
+    state.fastOverview = r;
+    layerVis.fast = true; WDMap.setLayers(layerVis); WDMap.setFast(r); buildLegend();
+    $("#clearFast").classList.remove("hidden");
+    renderFast(r);
+  } catch (e) { info.innerHTML = `<span class='err-msg'>${e.message}</span>`; }
+};
+
+function renderFast(r) {
+  const info = $("#fastInfo"), list = $("#fastList");
+  list.innerHTML = "";
+  if (!r.n_rides) {
+    info.innerHTML = "No past rides overlap this route. Run “Refresh ride history” in Maintenance if recent rides are missing.";
+    return;
+  }
+  const segs = (r.segments || []).slice().sort((a, b) => b.peak_kmh - a.peak_kmh);
+  const covered = segs.reduce((a, s) => a + s.length_km, 0);
+  info.innerHTML = `Across <b>${r.n_rides}</b> ride${r.n_rides > 1 ? "s" : ""} on this route: <b>${segs.length}</b> ` +
+    `stretch${segs.length === 1 ? "" : "es"} where you've ever gone faster than <b>${r.threshold}</b> km/h ` +
+    `(${covered.toFixed(1)} of ${r.route_km} km). Deeper pink on the map = faster.`;
+  segs.forEach(s => {
+    list.appendChild(el("div", "fast-row",
+      `<b>${s.peak_kmh} km/h</b>` +
+      `<span class='fr-km'>km ${s.km_start.toFixed(1)}–${s.km_end.toFixed(1)} · ${s.length_km.toFixed(1)} km</span>` +
+      `<span class='fr-date muted small'>${s.date || ""}</span>`));
+  });
+}
+
+// Threshold changes only re-slice the cached per-bin data — no re-aggregation.
+function refreshFastThreshold() {
+  const th = parseFloat($("#spdThresh").value) || 33;
+  const r = state.fastOverview;
+  r.threshold = th;
+  r.segments = computeFastSegments(r.bins, r.bin_km, th);
+  WDMap.setFast(r); renderFast(r);
+}
+function computeFastSegments(bins, binKm, th) {
+  const over = bins.map(b => b.max_kmh != null && b.max_kmh >= th);
+  const segs = []; let i = 0;
+  while (i < bins.length) {
+    if (!over[i]) { i++; continue; }
+    let j = i;
+    while (j + 1 < bins.length && (over[j + 1] || (j + 2 < bins.length && over[j + 2]))) j++;
+    while (j > i && !over[j]) j--;
+    let pk = i;
+    for (let k = i; k <= j; k++) if (bins[k].max_kmh > bins[pk].max_kmh) pk = k;
+    segs.push({
+      km_start: +(i * binKm).toFixed(2), km_end: +((j + 1) * binKm).toFixed(2),
+      length_km: +((j + 1 - i) * binKm).toFixed(2),
+      peak_kmh: bins[pk].max_kmh, date: bins[pk].date,
+    });
+    i = j + 1;
+  }
+  return segs;
+}
+
+$("#clearFast").onclick = () => {
+  state.fastOverview = null;
+  layerVis.fast = false; WDMap.setLayers(layerVis); WDMap.setFast(null); buildLegend();
+  $("#clearFast").classList.add("hidden");
+  $("#fastInfo").textContent = ""; $("#fastList").innerHTML = "";
 };
 
 // ---- map: legend, zoom controls, hazard veto, Street View (new tab) ----
@@ -614,6 +692,7 @@ const LEGEND = [
   { sw: `<span class='sw ln' style='background:#d1495b'></span>`, t: "avoid", key: "effort" },
   { sep: true },
   { sw: `<span class='sw ln' style='background:#3b6fd4'></span>`, t: "efforts", key: "bands" },
+  { sw: `<span class='sw ln' style='background:#d1145b'></span>`, t: "top speeds", key: "fast" },
   { sw: `<span class='sw ln' style='background:#e91e63'></span>`, t: "ride overlay", key: "ride" },
   { sep: true },
   { sw: `<span class='sw' style='background:#c0392b;transform:rotate(45deg)'></span>`, t: "signals", key: "signals" },
@@ -621,7 +700,7 @@ const LEGEND = [
   { sw: `<span class='sw ring'></span>`, t: "stops", key: "stops" },
   { sw: `<span class='sw ln' style='background:#c9c9c4'></span>`, t: "streets", key: "streets" },
 ];
-const layerVis = { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true };
+const layerVis = { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false };
 function buildLegend() {
   const box = $("#legend"); box.innerHTML = "";
   LEGEND.forEach(item => {

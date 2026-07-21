@@ -352,6 +352,21 @@ def ride_track(req: RideTrackReq):
         raise HTTPException(404, "ride file not found — refresh ride history in Maintenance")
 
 
+class RideFastReq(BaseModel):
+    route_id: str
+    threshold: float = 33.0
+
+
+@app.post("/api/rides/fast")
+def ride_fast(req: RideFastReq):
+    """Fastest speed ever ridden at each stretch of the route, aggregated across
+    all overlapping history rides, plus the segments clearing the threshold."""
+    s = _sess(req.route_id)
+    if s.get("mode") == "blank":
+        raise HTTPException(400, "no route in this session")
+    return rides.fast_overview(s["gpx"], threshold_kmh=req.threshold)
+
+
 # ------------------------------------------------- road corrections (veto) ---
 class VetoReq(BaseModel):
     route_id: str

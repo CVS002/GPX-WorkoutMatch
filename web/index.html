@@ -72,13 +72,17 @@
 
       <!-- past-ride speed overlay -->
       <div id="rideBlock">
-        <h3>Compare a past ride <span class="muted small">— overlay how fast you actually rode here</span></h3>
+        <h3>Where you ride fast <span class="muted small">— speed from your past rides on this route</span></h3>
         <div class="ride-row">
-          <button id="findRides">Find my rides on this route</button>
-          <label class="thresh-lab">mark faster than
+          <button id="fastBtn" class="primary-ghost">⚡ My fastest stretches (all rides)</button>
+          <button id="findRides">Compare a single ride</button>
+          <label class="thresh-lab">faster than
             <input type="number" id="spdThresh" value="33" min="5" max="80" step="1"> km/h</label>
+          <button id="clearFast" class="hidden">✕ clear</button>
           <button id="clearRide" class="hidden">✕ clear overlay</button>
         </div>
+        <p id="fastInfo" class="muted small"></p>
+        <div id="fastList" class="fast-list"></div>
         <div id="rideList" class="wlist ride-list"></div>
         <p id="rideInfo" class="muted small"></p>
       </div>
