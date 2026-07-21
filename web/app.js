@@ -45,10 +45,13 @@ async function uploadGpx(file) {
   try {
     const r = await api("/api/route", { method: "POST", body: fd });
     state.routeId = r.route_id;
-    // a new route invalidates any ride overlay from the previous one
+    // a new route invalidates any ride/fast overlay from the previous one
     state.rideTrack = state.rideFile = state.rideMatches = null;
     $("#rideList").innerHTML = ""; $("#rideInfo").textContent = "";
     $("#clearRide").classList.add("hidden");
+    state.fastOverview = null; layerVis.fast = false; WDMap.setFast(null);
+    $("#fastList").innerHTML = ""; $("#fastInfo").textContent = "";
+    $("#clearFast").classList.add("hidden");
     renderRoute(r);
     afterRouteReady();
   } catch (e) { box.innerHTML = `<p class='err-msg'>${e.message}</p>`; }
@@ -70,7 +73,29 @@ async function afterRouteReady() {
       `<span class='muted'>— ${rec.reason}</span>`;
   } catch (e) { $("#recommend").textContent = ""; }
   await loadWorkouts(top);
+  showRoutePreview();                 // map + past-ride speeds are useful without a workout
   $("#s2").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Render the route map (and enable the ride/fast overlays) as soon as a route is
+// loaded — no workout required. Picking one later reveals the design editor.
+function showRoutePreview() {
+  if (!state.routeId) return;
+  state.mode = "route"; state.segs = [];
+  $("#designMeta").innerHTML = "";
+  $("#s4title").textContent = "Route & map";
+  $("#s4sub").textContent = "— explore the route; pick a workout to design efforts";
+  $("#mapwrap").classList.remove("hidden");
+  $("#legend").classList.remove("hidden");
+  $("#rideBlock").classList.remove("hidden");
+  const hint = $(".maphint"); if (hint) hint.style.display = "";
+  $("#designControls").classList.add("hidden");
+  $("#pickHint").classList.remove("hidden");
+  show("#s4");
+  if (state.mapRouteId !== state.routeId || state.mapDirty) {
+    state.mapRouteId = state.routeId; state.mapDirty = false;
+    loadMapData();
+  }
 }
 
 function renderRoute(r) {
@@ -161,6 +186,8 @@ function applyDesign(d) {
   state.unit = state.mode === "blank" ? "min" : "km";
   state.segs = (d.segs || []).map(s => ({ ...s }));
   const hint = $(".maphint"), tbl = $("#segtable"), mw = $("#mapwrap"), lg = $("#legend");
+  $("#designControls").classList.remove("hidden");   // a design exists → show the editor
+  $("#pickHint").classList.add("hidden");
   if (state.mode === "blank") {
     state.rkm = 600;                                  // edit headroom (minutes)
     mw.classList.add("hidden"); lg.classList.add("hidden");

@@ -87,22 +87,26 @@
         <p id="rideInfo" class="muted small"></p>
       </div>
 
-      <!-- native segment editor -->
-      <h3>Workout segments <span class="muted small" id="segHint">— ◀ ▶ move · − + resize, in 0.5 km steps</span></h3>
-      <div id="timeline" title="drag a boundary to move it"></div>
-      <div class="tablewrap">
-        <table id="segtable">
-          <thead><tr><th>Type / name</th><th class="num" id="hdrPos">Route km</th><th>Move / size</th>
-            <th class="num seg-sec">Ride</th><th class="num seg-sec">Written</th><th>%FTP</th><th class="road-col">Road</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
+      <!-- native segment editor (hidden until a workout is chosen) -->
+      <div id="designControls" class="hidden">
+        <h3>Workout segments <span class="muted small" id="segHint">— ◀ ▶ move · − + resize, in 0.5 km steps</span></h3>
+        <div id="timeline" title="drag a boundary to move it"></div>
+        <div class="tablewrap">
+          <table id="segtable">
+            <thead><tr><th>Type / name</th><th class="num" id="hdrPos">Route km</th><th>Move / size</th>
+              <th class="num seg-sec">Ride</th><th class="num seg-sec">Written</th><th>%FTP</th><th class="road-col">Road</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button id="addSeg" class="hidden">+ Add segment</button>
+        <h3>intervals.icu syntax</h3>
+        <pre id="syntax" class="syntax"></pre>
+        <div id="issues"></div>
+        <label class="chk"><input type="checkbox" id="persistCorr"> save road corrections to my dossier</label>
+        <button id="toDate" class="primary">Design looks good → pick a date</button>
       </div>
-      <button id="addSeg" class="hidden">+ Add segment</button>
-      <h3>intervals.icu syntax</h3>
-      <pre id="syntax" class="syntax"></pre>
-      <div id="issues"></div>
-      <label class="chk"><input type="checkbox" id="persistCorr"> save road corrections to my dossier</label>
-      <button id="toDate" class="primary">Design looks good → pick a date</button>
+      <p id="pickHint" class="muted small hidden">Pick a workout in Step 2 to design efforts on this route — the map and your
+        past-ride speeds above are available now.</p>
     </section>
 
     <!-- Step 4: date + push -->
