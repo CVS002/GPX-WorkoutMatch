@@ -1,6 +1,6 @@
-"""Thin wrappers around the skill's analysis scripts, imported as modules.
+"""Thin wrappers around the analysis engine scripts, imported as modules.
 
-Every heavy computation here is the SAME code the skill runs — we just call the
+The heavy computation lives in the engine/ scripts; here we just call the
 importable functions directly (no subprocess, no --json text parsing) and hand
 back dicts. Nothing about the terrain/road/effort logic is reimplemented.
 """
@@ -10,7 +10,7 @@ from datetime import date
 
 from . import config
 
-# Make the shared engine importable, exactly as the skill's own scripts do.
+# Make the engine scripts importable.
 sys.path.insert(0, str(config.ENGINE_DIR))
 
 import analyze_gpx as L1            # noqa: E402

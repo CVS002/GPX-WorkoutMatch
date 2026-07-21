@@ -1,8 +1,7 @@
 """Configuration: paths + .env loading (no external deps).
 
-The app SHARES the skill's engine scripts, data caches, references dossier and
-map template rather than copying them, so a cache rebuilt here is immediately
-current in Claude Code and vice-versa. Every path is overridable via .env.
+Resolves the analysis engine scripts, data caches and references dossier that
+live under engine/. Every path is overridable via .env.
 """
 import os
 from pathlib import Path
@@ -31,20 +30,14 @@ def _p(env_key, default):
     return Path(os.environ.get(env_key, default)).expanduser()
 
 
-# --- Vendored engine (the app owns its own copy; see SYNC.md) ---
-# The app runs entirely off engine/ under APP_ROOT so its caches can grow
-# independently of the packaged skill. SKILL_DIR is only the SYNC SOURCE for the
-# "sync from skill" maintenance action — never read during a normal session.
+# --- Analysis engine (scripts + data caches + references, all under engine/) ---
+# The app runs entirely off engine/ under APP_ROOT. Caches grow here as ride
+# history and corrections accumulate.
 ENGINE_ROOT = _p("ENGINE_ROOT", str(APP_ROOT / "engine"))
 ENGINE_DIR = _p("ENGINE_DIR", str(ENGINE_ROOT / "scripts"))
 DATA_DIR = _p("DATA_DIR", str(ENGINE_ROOT / "data"))
 CACHE_DIR = _p("CACHE_DIR", str(DATA_DIR / "cache"))
-ASSETS_DIR = _p("ASSETS_DIR", str(ENGINE_ROOT / "assets"))
 REFERENCES_DIR = _p("REFERENCES_DIR", str(ENGINE_ROOT / "references"))
-
-# External skill install — used only as the sync source (code + optional caches).
-SKILL_DIR = _p("SKILL_DIR",
-               str(Path.home() / ".claude" / "skills" / "gpx-workout-designer-v2"))
 
 ROAD_DB = CACHE_DIR / "road_db.json"
 EFFORT_DB = CACHE_DIR / "effort_db.json"
@@ -52,7 +45,6 @@ OSM_HAZARDS = CACHE_DIR / "osm_hazards.json"
 OSM_STREETS = CACHE_DIR / "osm_streets.json"
 WORKOUT_BANK = CACHE_DIR / "workout_bank.json"
 KNOWN_ROADS = REFERENCES_DIR / "known-roads.md"
-MAP_TEMPLATE = ASSETS_DIR / "map_widget_template.html"
 
 # --- App working data (uploads, generated maps, per-route state) ---
 APP_DATA = _p("APP_DATA", str(APP_ROOT / "appdata"))
@@ -79,11 +71,10 @@ def icu_configured() -> bool:
 
 
 def missing_engine_bits() -> list[str]:
-    """Human-readable list of any shared skill files that aren't where we expect,
-    so the UI can tell the user to fix SKILL_DIR instead of failing cryptically."""
+    """Human-readable list of any engine files that aren't where we expect, so the
+    UI can say what's missing instead of failing cryptically."""
     checks = {
         "engine scripts": ENGINE_DIR / "analyze_gpx.py",
-        "map template": MAP_TEMPLATE,
         "workout bank": WORKOUT_BANK,
     }
     return [name for name, path in checks.items() if not path.exists()]

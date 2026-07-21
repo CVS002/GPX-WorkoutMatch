@@ -1,12 +1,11 @@
 """Background maintenance jobs — the one-click version of references/maintenance.md.
 
-Each job shells out to the SAME builder scripts the skill uses, with cwd set to
-the skill dir so their `data/history` and `data/cache` paths resolve to the
-shared files. Output streams into an in-memory log the UI polls. Single-user,
-local — a plain thread per job is enough (no queue/broker).
+Each job runs one of the engine's builder scripts with cwd set to the engine root
+so their `data/history` and `data/cache` paths resolve to the app's own files.
+Output streams into an in-memory log the UI polls. Single-user, local — a plain
+thread per job is enough (no queue/broker).
 """
 import sys
-import shutil
 import threading
 import subprocess
 from datetime import datetime
@@ -16,15 +15,14 @@ from . import icu
 
 HISTORY_DIR = config.DATA_DIR / "history"
 
-# Denser basemap now that we're a local app (no .skill size budget): full arterial
-# + residential + cycleway network instead of the packaged arterial skeleton.
+# Full arterial + residential + cycleway street network for the basemap.
 STREET_CLASSES = "primary,secondary,tertiary,unclassified,residential,living_street,cycleway"
 
 _JOBS: dict[str, dict] = {}
 _LOCK = threading.Lock()
 _SEQ = 0
 
-# kind -> (label, [script, *args]) run with cwd = SKILL_DIR
+# kind -> (label, [script, *args]) run with cwd = ENGINE_ROOT
 COMMANDS = {
     "road_db":      ("Rebuild road-knowledge DB", ["build_road_db.py", "data/history"]),
     "effort_db":    ("Rebuild effort-corridor DB", ["build_effort_db.py", "data/history"]),
@@ -130,50 +128,6 @@ def start_history_refresh(days: int = 120, max_rides: int = 200) -> str:
         rc1 = _run_cmd(jid, COMMANDS["road_db"][1])
         rc2 = _run_cmd(jid, COMMANDS["effort_db"][1])
         _finish(jid, None if rc1 == 0 and rc2 == 0 else "a rebuild step failed")
-
-    threading.Thread(target=worker, daemon=True).start()
-    return jid
-
-
-# --------------------------------------------------------- sync from skill ---
-def start_sync_from_skill(include_caches: bool = False) -> str:
-    """Pull CODE changes (engine scripts + map template + reference docs) from the
-    external skill install into the vendored engine/. Caches are the app's own and
-    are NOT overwritten unless include_caches is set (they'd usually be larger here).
-    """
-    jid = _new_job("Sync engine code from skill" + (" + caches" if include_caches else ""))
-
-    def worker():
-        src = config.SKILL_DIR
-        if not (src / "scripts").exists():
-            _finish(jid, f"skill not found at {src} (set SKILL_DIR in .env)")
-            return
-        try:
-            n = 0
-            for py in (src / "scripts").glob("*.py"):
-                shutil.copy2(py, config.ENGINE_DIR / py.name)
-                n += 1
-            _log(jid, f"copied {n} engine scripts")
-            tpl = src / "assets" / "map_widget_template.html"
-            if tpl.exists():
-                shutil.copy2(tpl, config.ASSETS_DIR / tpl.name)
-                _log(jid, "copied map template")
-            for md in (src / "references").glob("*.md"):
-                # don't clobber the app's own growing dossier
-                if md.name == "known-roads.md" and (config.REFERENCES_DIR / md.name).exists():
-                    continue
-                shutil.copy2(md, config.REFERENCES_DIR / md.name)
-            _log(jid, "copied reference docs (kept local known-roads.md)")
-            if include_caches:
-                for f in ("road_db.json", "effort_db.json", "osm_hazards.json",
-                          "osm_streets.json", "workout_bank.json", "workout_rides.json"):
-                    p = src / "data" / "cache" / f
-                    if p.exists():
-                        shutil.copy2(p, config.CACHE_DIR / f)
-                _log(jid, "copied caches from skill (overwrote app caches)")
-            _finish(jid, None)
-        except Exception as e:  # noqa: BLE001
-            _finish(jid, f"sync failed: {e}")
 
     threading.Thread(target=worker, daemon=True).start()
     return jid

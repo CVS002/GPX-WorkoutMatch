@@ -4,7 +4,7 @@ const el = (t, c, h) => { const e = document.createElement(t); if (c) e.classNam
 const state = { routeId: null, ftp: 300, tsb: null, phase: "build", lastStim: null,
                 segs: [], rkm: 0, workouts: [], wcat: "all", wsearch: "",
                 bufferKm: 5, refSpeed: 30,     // overwritten from /api/health
-                rideTrack: null, rideFile: null };
+                rideTrack: null, rideFile: null, date: null };
 
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
@@ -665,11 +665,47 @@ $("#svClose").onclick = closeStreetView;
 $("#svBack").onclick = closeStreetView;
 document.addEventListener("keydown", e => { if (e.key === "Escape") { closeStreetView(); WDMap.closePopover(); } });
 
-$("#toDate").onclick = () => { show("#s5"); $("#s5").scrollIntoView({ behavior: "smooth" }); };
+$("#toDate").onclick = () => {
+  if (!$("#dayChips").children.length) renderDayChips();
+  show("#s5");
+  $("#s5").scrollIntoView({ behavior: "smooth" });
+};
+
+// ---- Step 4: date selection (next-7-days chips + date picker) ----
+// Local YYYY-MM-DD (never toISOString — that's UTC and can shift the day).
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function renderDayChips() {
+  const wrap = $("#dayChips");
+  wrap.innerHTML = "";
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today); d.setDate(today.getDate() + i);
+    const val = ymd(d);
+    const top = i === 0 ? "Today" : i === 1 ? "Tomorrow" : wd[d.getDay()];
+    const b = el("button", "chip-btn daychip",
+      `<span class="dc-top">${top}</span><span class="dc-num">${d.getDate()}/${d.getMonth() + 1}</span>`);
+    b.dataset.date = val;
+    b.onclick = () => setDate(val);
+    wrap.appendChild(b);
+  }
+  // Default to today so a date is always selected when the step opens.
+  setDate(ymd(today));
+}
+function setDate(val) {
+  state.date = val;
+  $("#date").value = val;
+  document.querySelectorAll("#dayChips .daychip").forEach(c =>
+    c.classList.toggle("on", c.dataset.date === val));
+}
+// Typing/picking in the date input drives the same state (and lights a chip if in range).
+$("#date").onchange = () => { if ($("#date").value) setDate($("#date").value); };
 
 // ---- Step 5: push ----
 $("#push").onclick = async () => {
-  const date = $("#date").value;
+  const date = state.date || $("#date").value;
   const box = $("#pushResult"), btn = $("#push");
   if (!date) { box.innerHTML = "<p class='err-msg'>pick a date</p>"; return; }
   btn.disabled = true;   // a double-click must not create two calendar events
@@ -701,15 +737,6 @@ document.querySelectorAll("button.maint").forEach(b => b.onclick = async () => {
     pollJobs(r.job_id);
   } catch (e) { $("#jobLog").textContent = e.message; }
 });
-$("#syncSkill").onclick = async () => {
-  try {
-    const r = await api("/api/maint/sync", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ include_caches: $("#syncCaches").checked }),
-    });
-    pollJobs(r.job_id);
-  } catch (e) { $("#jobLog").textContent = e.message; }
-};
 function pollJobs(jid) {
   clearInterval(jobPoll);
   jobPoll = setInterval(async () => {

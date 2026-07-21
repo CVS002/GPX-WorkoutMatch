@@ -1,9 +1,8 @@
 # Architecture
 
-The reference for maintainers. Start with [README.md](../README.md) for setup/run,
-[SYNC.md](../SYNC.md) for how the vendored `engine/` tracks the skill, and
-[ROADMAP.md](ROADMAP.md) for proposed features. This file explains *how the pieces
-fit together* so a change lands in the right place.
+The reference for maintainers. Start with [README.md](../README.md) for setup/run
+and [ROADMAP.md](ROADMAP.md) for proposed features. This file explains *how the
+pieces fit together* so a change lands in the right place.
 
 ## 10-second mental model
 
@@ -11,9 +10,8 @@ A **local, single-user, no-LLM web app**. A Python (FastAPI) server analyses a G
 route, deterministically designs a structured cycling workout that places its hard
 intervals on the *cleanest, effort-ready* stretches of road, renders it on a native
 SVG map you can adjust, and pushes it to intervals.icu as a calendar event. All the
-"is this stretch of road good for an effort?" intelligence lives in the vendored
-**analysis engine** (`engine/`), shared with the `gpx-workout-designer-v2` Claude
-skill. Nothing calls an LLM at runtime.
+"is this stretch of road good for an effort?" intelligence lives in the local
+**analysis engine** (`engine/`). Nothing calls an LLM at runtime.
 
 ```
 browser (web/)  ──HTTP /api/*──▶  FastAPI (server/)  ──imports──▶  engine/ (analysis)
@@ -39,7 +37,7 @@ the designer and the map are both just consumers of the fused per-km score.
 | **L6 Workout-aware** | planned-workout ride manifest | treats "segment done, I stopped" near-stops as non-hazards | `workout_rides.json` |
 
 `composite_scores()` ([server/engine.py](../server/engine.py)) fuses these into a
-per-km score + a ranked list of **placement blocks** (via the skill's
+per-km score + a ranked list of **placement blocks** (via the engine's
 `compute_effort` / `placement_blocks`). Green road on the map == high composite
 score == where the designer will try to land an interval. Athlete overrides
 (`cleared_km`, from the map's "I ride through this") drop danger points before fusion.
@@ -64,9 +62,9 @@ for the objective→phase→terrain decision logic the ranking encodes.
 8. POST /api/push        create the WORKOUT event on intervals.icu (only after review)
 ```
 
-Strict order is intentional (mirrors the skill): **the map is reviewed before any
-date is picked**. `_estimate_load` / validation run on every edit so the push button
-only ever sends a design that already passed the guardrails.
+Strict order is intentional: **the map is reviewed before any date is picked**.
+`_estimate_load` / validation run on every edit so the push button only ever sends a
+design that already passed the guardrails.
 
 ### Server-side session state
 
@@ -91,7 +89,7 @@ A `mode: "blank"` session is a no-route, time-based workout (no GPX, no map).
 | [mapdata.py](../server/mapdata.py) | Reshapes the cached `route_context` into the JSON the native SVG map draws: downsampled polyline, per-km tiers, hazards, stops, top blocks, near-route streets. No heavy compute — reads the session cache. |
 | [rides.py](../server/rides.py) | Matches past-ride history GPX against the current route via a ~110 m spatial cell index (`matches`), and serves a downsampled speed `track` for the overlay. Path-traversal guarded (basename + `.gpx` only). |
 | [icu.py](../server/icu.py) | intervals.icu REST client (httpx, Basic auth, username literal `"API_KEY"`). `recent_activities`, `fitness`, `sport_settings`, `events`, `create_workout`, and `download_gpx` — which **reconstructs** GPX by fusing `/map` (has longitude) with `/streams` because intervals.icu's `latlng` stream drops longitude and there is no `/gpx` export. |
-| [jobs.py](../server/jobs.py) | Background maintenance (daemon threads, in-memory log the UI polls): cache rebuilds, `start_history_refresh`, `start_sync_from_skill` (pull code from `SKILL_DIR`, never clobber `known-roads.md`), `append_known_roads` (L4 dossier writer). Runs builders with `cwd=ENGINE_ROOT`. **Job state is lost on restart.** |
+| [jobs.py](../server/jobs.py) | Background maintenance (daemon threads, in-memory log the UI polls): cache rebuilds, `start_history_refresh` (download ride GPX + rebuild road/effort DBs), `append_known_roads` (L4 dossier writer). Runs builders with `cwd=ENGINE_ROOT`. **Job state is lost on restart.** |
 
 ### `web/` — vanilla-JS single-page app (no build step)
 
@@ -102,11 +100,13 @@ A `mode: "blank"` session is a no-route, time-based workout (no GPX, no map).
 | [map.js](../web/map.js) | `window.WDMap` — self-contained SVG map. Equirectangular projection, route coloured by road tier, thick effort bands, hazard/stop markers with popovers, past-ride speed overlay, wheel-zoom/pan. Owns **no** HTTP — fires `onVeto`/`onStreetView` callbacks back into app.js. |
 | [app.css](../web/app.css) | Theming (light + `prefers-color-scheme: dark`), card layout, resizable map, timeline, content-sized segment table. |
 
-### `engine/` — the vendored analysis engine
+### `engine/` — the analysis engine
 
-The app's **own copy** of the skill (scripts + caches + map template + reference
-docs). It is what actually runs; `SKILL_DIR` is only a sync source. Caches here are
-allowed to grow larger than the packaged skill's. See [SYNC.md](../SYNC.md).
+The local analysis engine: builder + analysis scripts (`scripts/`), the data caches
+(`data/cache/`), the ride-history GPX (`data/history/`), and the reference dossier
+(`references/`). This is what actually runs. The caches grow here as ride history and
+map corrections accumulate; rebuild them from the Maintenance panel or the CLI (see
+[engine/references/maintenance.md](../engine/references/maintenance.md)).
 
 ## Guardrails (why a bad design can't reach the calendar)
 
@@ -137,7 +137,7 @@ checks).
 |---|---|
 | Change how efforts are placed on the route | `server/designer.py` (`_plan_placement`, `_choose_session`, `_avoid_start`) |
 | Change what makes a design invalid | `server/syntax.py` (`validate`) |
-| Change the objective→phase→terrain ranking | the skill's `suggest_workout.py` / `coaching-engine.md`, then Sync |
-| Change how a segment scores (add/weight a layer) | `compute_effort` in the skill (`build_map_widget.py`), then Sync; surfaced via `server/engine.py::composite_scores` |
+| Change the objective→phase→terrain ranking | `engine/scripts/suggest_workout.py` / `engine/references/coaching-engine.md` |
+| Change how a segment scores (add/weight a layer) | `compute_effort` in `engine/scripts/build_map_widget.py`; surfaced via `server/engine.py::composite_scores` |
 | Add/adjust a wizard step or map interaction | `web/app.js` (+ `web/index.html` for markup, `web/map.js` for the map) |
 | Add a maintenance job | `server/jobs.py` (`COMMANDS`) + a button in `web/index.html` |

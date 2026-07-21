@@ -6,7 +6,7 @@ workout with per-step targets, estimated training load, and zone coloring.
 
 If the MCP server exposes the resource `intervals-icu://workout-syntax`, read
 it — it is authoritative and more complete than this file. This file covers
-the distance-based subset this skill uses.
+the distance-based subset this app uses.
 
 ## Step format
 
@@ -18,7 +18,7 @@ One step per line, starting with `- `:
 
 - **name**: free text label shown on the head unit (keep short, it scrolls)
 - **distance**: e.g. `10km`, `21km`, `800m`. Time-based also works (`20m`, `90s`)
-  but this skill defaults to distance so steps map onto GPX terrain.
+  but this app defaults to distance so steps map onto GPX terrain.
 - **intensity**: percentage of FTP as a range, e.g. `88-92%`. A single value
   (`95%`) also works but ranges ride better outdoors.
 - **`power=3s`**: target 3-second smoothed power rather than lap average.

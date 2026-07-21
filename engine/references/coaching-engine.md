@@ -1,6 +1,6 @@
 # Coaching engine — how to choose the workout
 
-This is the decision logic that stops the skill from proposing the same session
+This is the decision logic that stops the app from proposing the same session
 every time. Work through it in order **before** writing any steps. Pick the
 `workout-library.md` type that the objective, phase, load, and terrain point to
 — not a favourite template. If two prior proposals would come out identical,
@@ -64,7 +64,7 @@ racing → race sim + anaerobic).
 | **Wind-exposed** | headwind legs = free resistance for threshold/VO₂ | tailwind legs = recovery/float |
 
 **When terrain and objective conflict, reshape the workout to the terrain**
-rather than forcing it (that reshaping is the skill's edge). Examples:
+rather than forcing it (that reshaping is the app's edge). Examples:
 - Objective VO₂ but only 2-min climbs → `6×3-min VO₂` on the climbs, not 5×5.
 - Objective threshold but rolling → `over-unders` so the surges ride the risers.
 - Objective TT but route is twisty → move the effort to the one straight block
@@ -110,7 +110,6 @@ State it as a concrete suggestion; the athlete decides.
 Training objective · detailed structure · power targets (%FTP) · HR guidance
 (%FTHR/RPE) · cadence guidance · terrain recommendations · suggested GPX
 modifications · a suitable calendar day (given yesterday/today/tomorrow + next
-race — **choose it internally; only surface/ask the date at Step 5 of
-`SKILL.md`, after the map is finalized**) · exportable intervals.icu workout.
-Present it on the map (Step 4 of `SKILL.md`), finalize, then **the date and the
-event creation come last** (Step 5).
+race — **choose it internally; only surface/ask the date after the map is
+finalized**) · exportable intervals.icu workout. Present it on the map,
+finalize, then **the date and the event creation come last**.

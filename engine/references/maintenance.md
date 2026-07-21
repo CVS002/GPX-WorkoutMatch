@@ -2,8 +2,8 @@
 
 Read this when a cache needs building or refreshing — it is not needed during
 a normal design session. The day-to-day flow only touches these when
-`score_route.py` reports low coverage (see SKILL.md Step 1b) or the athlete
-asks for a refresh.
+`score_route.py` reports low coverage (when a route scores low coverage) or the
+athlete asks for a refresh.
 
 ## Layer 2 — ride-history road DB (`data/cache/road_db.json`)
 
@@ -95,16 +95,15 @@ adding history means a **full rebuild from a complete re-pull** (the build is
 incremental — already-cached activity ids are skipped). Delete the cache first
 to rebuild from scratch.
 
-## Layer 6 — learn from planned workouts + update the skill
+## Layer 6 — learn from planned workouts
 
 The rides that most deserve trust are the days the athlete rode a *planned*
 structured workout: the fast, steady stretches are real efforts (not random
 sprints), and their stops are usually "segment done" rather than road hazards.
-This flow folds those rides in and repackages the skill. It is two steps — an
-MCP half (assistant) and a script half.
+This flow folds those rides in. It is two steps — building the manifest, then
+rebuilding the caches.
 
-**Step A (MCP — the assistant does this in the session).** Extend
-`data/cache/workout_rides.json`:
+**Step A — extend `data/cache/workout_rides.json`.**
 
 1. `icu_get_calendar_events` over a wide `days_back` window; keep entries with
    `category == "WORKOUT"` that are outdoor rides (skip indoor turbo sessions —
@@ -118,19 +117,20 @@ MCP half (assistant) and a script half.
 The manifest is the only thing that marks a ride "workout"; the GPX itself also
 feeds Layers 2 and 5 normally.
 
-**Step B (script — the non-MCP half).** Rebuild both caches (so the direction
-bins and workout-aware suppression apply to the whole history) and repackage:
+**Step B — rebuild the caches.** So the direction bins and workout-aware
+suppression apply to the whole history (including older rides), do a full
+rebuild of both caches rather than an incremental run:
 
 ```bash
-python scripts/update_skill.py --out /path/to/gpx-workout-designer_V2.skill
+python scripts/build_road_db.py data/history       # workout-aware, reads workout_rides.json
+python scripts/build_effort_db.py data/history      # grid taken from road_db.json
 ```
 
-It backs up each cache to `*.bak`, rebuilds `road_db` (workout-aware, reading
-`workout_rides.json`) and `effort_db` from scratch, then writes the `.skill`.
-Pass `--no-package` to rebuild caches only. **Yes — a Claude Code session that
-has the skill installed can run this end-to-end**: the assistant does Step A
-with the MCP tools, then runs `update_skill.py` for Step B, and the refreshed
-`.skill` is ready to re-upload to the Claude app.
+`build_effort_db.py` reads `road_db`'s grid, so build `road_db` first. Both
+builds are incremental (already-cached ids are skipped), so to force the
+workout-aware stops and direction bins onto old rides, **delete the cache files
+first** and rebuild from scratch. Back up each cache to `*.bak` beforehand if
+you want a fallback.
 
 **Proposing dossier entries (Layer 4).** Learned corridors enrich the caches
 automatically, but `known-roads.md` stays athlete-confirmed: when a designed
@@ -171,8 +171,8 @@ python scripts/build_street_cache.py --classes primary,secondary,tertiary,unclas
 
 It reuses the hazard-cache box, fetches road ways once, decimates them, and
 writes the cache. That file is large (~13 MB for the arterial skeleton) so it
-is **kept local and NOT shipped in the .skill package** — rebuild it after
-installing elsewhere. The widget reads only the near-route subset, so its size
+is **kept local** — rebuild it after installing elsewhere. The widget reads
+only the near-route subset, so its size
 never bloats the widget itself.
 
 ## Workout bank (`data/cache/workout_bank.json`)

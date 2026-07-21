@@ -104,8 +104,10 @@
     <!-- Step 4: date + push -->
     <section class="card hidden" id="s5">
       <h2><span class="n">4</span> Schedule</h2>
+      <p class="muted small">Pick a day in the next week, or choose a later date.</p>
+      <div id="dayChips" class="chips daychips"></div>
       <div class="date-row">
-        <label>Date <input type="date" id="date"></label>
+        <label>Other date <input type="date" id="date"></label>
         <button id="push" class="primary">Create workout on intervals.icu</button>
       </div>
       <div id="pushResult"></div>
@@ -115,15 +117,13 @@
     <section class="card" id="maint">
       <h2 class="collapse" id="maintToggle">⚙ Maintenance <span class="muted small">(caches &amp; ride history)</span></h2>
       <div id="maintBody" class="hidden">
-        <p class="muted small">Rebuilds share the skill's caches. History refresh + OSM rebuilds need internet / your intervals.icu key.</p>
+        <p class="muted small">Rebuild the analysis caches. History refresh + OSM rebuilds need internet / your intervals.icu key.</p>
         <div class="btns">
           <button data-kind="history" class="maint">Refresh ride history + rebuild road/effort DB</button>
           <button data-kind="osm_hazards" class="maint">Rebuild OSM hazards (60 km)</button>
           <button data-kind="streets" class="maint">Rebuild street basemap</button>
           <button data-kind="bank" class="maint">Refresh workout bank</button>
-          <button id="syncSkill" class="maint">↺ Sync engine code from skill</button>
         </div>
-        <label class="chk"><input type="checkbox" id="syncCaches"> also overwrite app caches with the skill's</label>
         <pre id="jobLog" class="joblog"></pre>
       </div>
     </section>

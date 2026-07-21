@@ -1,6 +1,6 @@
 """FastAPI app — the wizard backend.
 
-Flow (mirrors the skill's strict order; the map is reviewed BEFORE any date):
+Flow (strict order; the map is reviewed BEFORE any date):
   upload -> analysis + context -> objective menu -> design + map + adjust loop
   -> date + push. No LLM anywhere; intervals.icu via REST.
 """
@@ -77,7 +77,6 @@ def _mapdata(s: dict) -> dict:
 def health():
     return {"missing_engine": config.missing_engine_bits(),
             "icu_configured": config.icu_configured(),
-            "skill_dir": str(config.SKILL_DIR),
             # design constants the front-end must agree on (never hardcode there)
             "buffer_km": config.BUFFER_KM,
             "ref_speed_kmh": config.REF_SPEED_KMH}
@@ -446,15 +445,6 @@ def maint_history():
     if not config.icu_configured():
         raise HTTPException(400, "intervals.icu not configured (.env)")
     return {"job_id": jobs.start_history_refresh()}
-
-
-class SyncReq(BaseModel):
-    include_caches: bool = False
-
-
-@app.post("/api/maint/sync")
-def maint_sync(req: SyncReq):
-    return {"job_id": jobs.start_sync_from_skill(req.include_caches)}
 
 
 # --------------------------------------------------------------- static UI ---

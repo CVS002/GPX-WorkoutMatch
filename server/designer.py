@@ -10,8 +10,8 @@ road-aware structured workout — with NO LLM. It:
   4. assembles warm-up / bridges / cooldown with lap-button buffer padding,
   5. renders segments + intervals.icu syntax + a load estimate + evidence.
 
-The placement math and block ranking are the skill's own functions
-(build_map_widget.compute_effort / placement_blocks), so the design lands where
+The placement math and block ranking come from the engine's
+`build_map_widget.compute_effort` / `placement_blocks`, so the design lands where
 the map colours the road green.
 """
 import json

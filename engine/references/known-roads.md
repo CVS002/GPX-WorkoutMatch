@@ -2,7 +2,7 @@
 
 Confirmed, human-verified judgments about specific roads and junctions around
 the athlete's usual training area. This is Layer 4: it turns the athlete's
-local knowledge into a permanent asset so the skill asks fewer questions over
+local knowledge into a permanent asset so the app asks fewer questions over
 time.
 
 **This athlete's home area:** Eindhoven / Son en Breugel / Waalre /
@@ -10,7 +10,7 @@ Heeze-Leende (flat — junction/light data matters more than gradient). When
 filtering ride history for the road DB, prioritise rides in this area.
 *(Installing for a different athlete? Reset this file to the template below.)*
 
-## How the skill uses this file
+## How the app uses this file
 
 - **Read it during Step 3 (design).** Match entries against the route's km
   positions and named roads. A confirmed "TT-grade, uninterrupted" entry lets
@@ -21,7 +21,7 @@ filtering ride history for the road DB, prioritise rides in this area.
   (Layer 3) wherever they disagree — it is the athlete's own verified word.
 - **Append after every ride/correction.** When the athlete corrects a
   proposal ("no, that stretch has a light") or reports back after riding,
-  add or update an entry here. Over time the skill proposes and the athlete
+  add or update an entry here. Over time the app proposes and the athlete
   only confirms.
 
 ## Entry format

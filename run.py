@@ -17,8 +17,8 @@ def _open_browser():
 if __name__ == "__main__":
     missing = config.missing_engine_bits()
     if missing:
-        print("WARNING: shared skill files not found:", ", ".join(missing))
-        print(f"  Set SKILL_DIR in .env (currently {config.SKILL_DIR})")
+        print("WARNING: engine files not found:", ", ".join(missing))
+        print(f"  Expected under {config.ENGINE_ROOT}")
     print(f"GPX Workout Designer -> http://{config.HOST}:{config.PORT}/")
     print(f"  intervals.icu: {'configured' if config.icu_configured() else 'NOT configured (.env)'}")
     threading.Timer(1.2, _open_browser).start()

@@ -146,7 +146,7 @@ def download_gpx(activity_id, start_local: str | None = None) -> bytes:
     returns latitude only (longitude dropped — the long-standing bug). The route
     geometry WITH longitude lives in the /map endpoint's `latlngs`; time / HR /
     speed / altitude come from /streams. We fuse them into the same GPX shape the
-    skill's builders parse: <trkpt> with <ele>/<time>/<speed>/<hr> children and a
+    engine's builders parse: <trkpt> with <ele>/<time>/<speed>/<hr> children and a
     <link href=".../{id}"> so ride dedup by activity id still works.
     """
     from datetime import datetime, timedelta
