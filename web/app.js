@@ -4,7 +4,7 @@ const el = (t, c, h) => { const e = document.createElement(t); if (c) e.classNam
 const state = { routeId: null, ftp: 300, tsb: null, phase: "build", lastStim: null,
                 segs: [], rkm: 0, workouts: [], wcat: "all", wsearch: "",
                 bufferKm: 5, refSpeed: 30,     // overwritten from /api/health
-                rideTrack: null, rideFile: null, fastOverview: null, date: null };
+                rideTrack: null, rideFile: null, fastOverview: null, powerOverview: null, date: null };
 
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
@@ -52,6 +52,9 @@ async function uploadGpx(file) {
     state.fastOverview = null; layerVis.fast = false; WDMap.setFast(null);
     $("#fastList").innerHTML = ""; $("#fastInfo").textContent = "";
     $("#clearFast").classList.add("hidden");
+    state.powerOverview = null; layerVis.power = false; WDMap.setPower(null);
+    $("#powerList").innerHTML = ""; $("#powerInfo").textContent = "";
+    $("#clearPower").classList.add("hidden");
     renderRoute(r);
     afterRouteReady();
   } catch (e) { box.innerHTML = `<p class='err-msg'>${e.message}</p>`; }
@@ -176,6 +179,7 @@ async function loadMapData() {
     WDMap.setSegs(state.segs);
     WDMap.setRide(state.rideTrack, parseFloat($("#spdThresh").value) || 33);
     WDMap.setFast(state.fastOverview);
+    WDMap.setPower(state.powerOverview);
     buildLegend();
   } catch (e) { /* map stays blank; the rest of the design still works */ }
 }
@@ -630,7 +634,7 @@ function updateRideInfo() {
 
 $("#spdThresh").addEventListener("change", () => {
   postRide(); updateRideInfo();
-  if (state.fastOverview) refreshFastThreshold();
+  if (state.fastOverview) fastOv.refresh();
 });
 $("#clearRide").onclick = () => {
   state.rideTrack = null; state.rideFile = null;
@@ -638,56 +642,12 @@ $("#clearRide").onclick = () => {
   postRide(); updateRideInfo(); renderRideList(state.rideMatches || []);
 };
 
-// ---- fastest stretches across ALL rides (route-aligned aggregate) ----
-$("#fastBtn").onclick = async () => {
-  if (state.mode === "blank" || !WDMap.hasData()) return;
-  const info = $("#fastInfo");
-  info.textContent = "aggregating every ride on this route… (the first run indexes your history — ~20 s)";
-  $("#fastList").innerHTML = "";
-  try {
-    const th = parseFloat($("#spdThresh").value) || 33;
-    const r = await api("/api/rides/fast", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ route_id: state.routeId, threshold: th }),
-    });
-    state.fastOverview = r;
-    layerVis.fast = true; WDMap.setLayers(layerVis); WDMap.setFast(r); buildLegend();
-    $("#clearFast").classList.remove("hidden");
-    renderFast(r);
-  } catch (e) { info.innerHTML = `<span class='err-msg'>${e.message}</span>`; }
-};
-
-function renderFast(r) {
-  const info = $("#fastInfo"), list = $("#fastList");
-  list.innerHTML = "";
-  if (!r.n_rides) {
-    info.innerHTML = "No past rides overlap this route. Run “Refresh ride history” in Maintenance if recent rides are missing.";
-    return;
-  }
-  const segs = (r.segments || []).slice().sort((a, b) => b.peak_kmh - a.peak_kmh);
-  const covered = segs.reduce((a, s) => a + s.length_km, 0);
-  info.innerHTML = `Across <b>${r.n_rides}</b> ride${r.n_rides > 1 ? "s" : ""} on this route: <b>${segs.length}</b> ` +
-    `stretch${segs.length === 1 ? "" : "es"} where a ride <b>averaged</b> over <b>${r.threshold}</b> km/h ` +
-    `across a ${Math.round((r.win_km || 0.5) * 1000)} m window (${covered.toFixed(1)} of ${r.route_km} km).`;
-  segs.forEach(s => {
-    list.appendChild(el("div", "fast-row",
-      `<b>${s.peak_kmh} km/h</b>` +
-      `<span class='fr-km'>km ${s.km_start.toFixed(1)}–${s.km_end.toFixed(1)} · ${s.length_km.toFixed(1)} km</span>` +
-      `<span class='fr-date muted small'>${s.date || ""}</span>`));
-  });
-}
-
-// Threshold changes only re-slice the cached per-bin data — no re-aggregation.
-function refreshFastThreshold() {
-  const th = parseFloat($("#spdThresh").value) || 33;
-  const r = state.fastOverview;
-  r.threshold = th;
-  r.segments = computeFastSegments(r.bins, r.bin_km, th);
-  WDMap.setFast(r); renderFast(r);
-}
+// ---- route-aligned overlays across ALL rides: speed (fast) & power ----
+// Same aggregation server-side (best per-ride 500 m-window average, per stretch);
+// one controller drives both, differing only in endpoint, threshold unit and map layer.
 const SEG_GAP = 2;   // mirrors _SEG_GAP in rides.py: bridge gaps up to 2 sub-bins
-function computeFastSegments(bins, binKm, th) {
-  const over = bins.map(b => b.kmh != null && b.kmh >= th);
+function computeSegments(bins, binKm, th) {
+  const over = bins.map(b => b.val != null && b.val >= th);
   const segs = []; let i = 0;
   while (i < bins.length) {
     if (!over[i]) { i++; continue; }
@@ -699,23 +659,84 @@ function computeFastSegments(bins, binKm, th) {
       j = nxt;
     }
     let pk = i;
-    for (let k = i; k <= j; k++) if (over[k] && bins[k].kmh > bins[pk].kmh) pk = k;
+    for (let k = i; k <= j; k++) if (over[k] && bins[k].val > bins[pk].val) pk = k;
     segs.push({
       km_start: +(i * binKm).toFixed(2), km_end: +((j + 1) * binKm).toFixed(2),
       length_km: +((j + 1 - i) * binKm).toFixed(2),
-      peak_kmh: bins[pk].kmh, date: bins[pk].date,
+      peak: bins[pk].val, date: bins[pk].date,
     });
     i = j + 1;
   }
   return segs;
 }
 
-$("#clearFast").onclick = () => {
-  state.fastOverview = null;
-  layerVis.fast = false; WDMap.setLayers(layerVis); WDMap.setFast(null); buildLegend();
-  $("#clearFast").classList.add("hidden");
-  $("#fastInfo").textContent = ""; $("#fastList").innerHTML = "";
-};
+function makeOverlay(cfg) {
+  const info = () => $(cfg.info), list = () => $(cfg.list),
+        clr = () => $(cfg.clear), thr = () => $(cfg.thresh);
+  function render(r) {
+    list().innerHTML = "";
+    if (!r.n_rides) { info().innerHTML = cfg.emptyMsg; return; }
+    const segs = (r.segments || []).slice().sort((a, b) => b.peak - a.peak);
+    const covered = segs.reduce((a, s) => a + s.length_km, 0);
+    info().innerHTML = `Across <b>${r.n_rides}</b> ride${r.n_rides > 1 ? "s" : ""}${cfg.ridesSuffix}: <b>${segs.length}</b> ` +
+      `stretch${segs.length === 1 ? "" : "es"} where a ride <b>averaged</b> over <b>${r.threshold}</b> ${r.unit} ` +
+      `across a ${Math.round((r.win_km || 0.5) * 1000)} m window (${covered.toFixed(1)} of ${r.route_km} km).`;
+    segs.forEach(s => list().appendChild(el("div", "fast-row",
+      `<b>${s.peak} ${r.unit}</b>` +
+      `<span class='fr-km'>km ${s.km_start.toFixed(1)}–${s.km_end.toFixed(1)} · ${s.length_km.toFixed(1)} km</span>` +
+      `<span class='fr-date muted small'>${s.date || ""}</span>`)));
+  }
+  async function run() {
+    if (state.mode === "blank" || !WDMap.hasData()) return;
+    info().textContent = cfg.loading; list().innerHTML = "";
+    try {
+      const th = parseFloat(thr().value) || cfg.defThresh;
+      const r = await api(cfg.endpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ route_id: state.routeId, threshold: th }),
+      });
+      state[cfg.stateKey] = r;
+      layerVis[cfg.layer] = true; WDMap.setLayers(layerVis); WDMap[cfg.setter](r); buildLegend();
+      clr().classList.remove("hidden");
+      render(r);
+    } catch (e) { info().innerHTML = `<span class='err-msg'>${e.message}</span>`; }
+  }
+  // Threshold change only re-slices the cached per-bin data — no re-aggregation.
+  function refresh() {
+    const r = state[cfg.stateKey]; if (!r) return;
+    r.threshold = parseFloat(thr().value) || cfg.defThresh;
+    r.segments = computeSegments(r.bins, r.bin_km, r.threshold);
+    WDMap[cfg.setter](r); render(r);
+  }
+  function clear() {
+    state[cfg.stateKey] = null;
+    layerVis[cfg.layer] = false; WDMap.setLayers(layerVis); WDMap[cfg.setter](null); buildLegend();
+    clr().classList.add("hidden");
+    info().textContent = ""; list().innerHTML = "";
+  }
+  return { run, refresh, clear };
+}
+
+const fastOv = makeOverlay({
+  endpoint: "/api/rides/fast", thresh: "#spdThresh", defThresh: 33,
+  stateKey: "fastOverview", layer: "fast", setter: "setFast",
+  info: "#fastInfo", list: "#fastList", clear: "#clearFast", ridesSuffix: " on this route",
+  loading: "aggregating every ride on this route… (the first run indexes your history — ~20 s)",
+  emptyMsg: "No past rides overlap this route. Run “Refresh ride history” in Maintenance if recent rides are missing.",
+});
+const powerOv = makeOverlay({
+  endpoint: "/api/rides/power", thresh: "#pwrThresh", defThresh: 200,
+  stateKey: "powerOverview", layer: "power", setter: "setPower",
+  info: "#powerInfo", list: "#powerList", clear: "#clearPower", ridesSuffix: " with power here",
+  loading: "aggregating power from your rides on this route…",
+  emptyMsg: "No stored ride on this route has power yet. Only rides recorded with a power meter count — " +
+    "run “Refresh ride history” in Maintenance to pull power into the GPX.",
+});
+$("#fastBtn").onclick = fastOv.run;
+$("#clearFast").onclick = fastOv.clear;
+$("#powerBtn").onclick = powerOv.run;
+$("#clearPower").onclick = powerOv.clear;
+$("#pwrThresh").addEventListener("change", () => { if (state.powerOverview) powerOv.refresh(); });
 
 // ---- map: legend, zoom controls, hazard veto, Street View (new tab) ----
 const LEGEND = [
@@ -725,6 +746,7 @@ const LEGEND = [
   { sep: true },
   { sw: `<span class='sw ln' style='background:#3b6fd4'></span>`, t: "efforts", key: "bands" },
   { sw: `<span class='sw ln' style='background:#d1145b'></span>`, t: "top speeds", key: "fast" },
+  { sw: `<span class='sw ln' style='background:#6a3fb5'></span>`, t: "top power", key: "power" },
   { sw: `<span class='sw ln' style='background:#e91e63'></span>`, t: "ride overlay", key: "ride" },
   { sep: true },
   { sw: `<span class='sw' style='background:#c0392b;transform:rotate(45deg)'></span>`, t: "signals", key: "signals" },
@@ -732,7 +754,7 @@ const LEGEND = [
   { sw: `<span class='sw ring'></span>`, t: "stops", key: "stops" },
   { sw: `<span class='sw ln' style='background:#c9c9c4'></span>`, t: "streets", key: "streets" },
 ];
-const layerVis = { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false };
+const layerVis = { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false, power: false };
 function buildLegend() {
   const box = $("#legend"); box.innerHTML = "";
   LEGEND.forEach(item => {

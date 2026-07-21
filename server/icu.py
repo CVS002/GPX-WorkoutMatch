@@ -157,10 +157,11 @@ def download_gpx(activity_id, start_local: str | None = None) -> bytes:
     if len(latlngs) < 2:
         raise IcuError(f"{activity_id}: no GPS geometry")
     st = httpx.get(f"{base}/api/v1/activity/{activity_id}/streams", auth=_auth(), timeout=60,
-                   params={"types": "time,heartrate,velocity_smooth,altitude"})
+                   params={"types": "time,heartrate,velocity_smooth,altitude,watts"})
     st.raise_for_status()
     S = {s["type"]: (s.get("data") or []) for s in st.json()}
     tstream, hr, vel, alt = S.get("time"), S.get("heartrate", []), S.get("velocity_smooth", []), S.get("altitude", [])
+    pwr = S.get("watts", [])
     n = min(len(latlngs), len(tstream) if tstream else len(latlngs))
 
     base_dt = datetime(2020, 1, 1)
@@ -171,8 +172,10 @@ def download_gpx(activity_id, start_local: str | None = None) -> bytes:
         except ValueError:
             pass
 
+    # creator carries a schema version so a re-refresh can tell power-aware GPX
+    # (v2, fetches the watts stream) from the older power-less files and re-pull them.
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
-           '<gpx version="1.1" creator="workout-designer" xmlns="http://www.topografix.com/GPX/1/1">',
+           '<gpx version="1.1" creator="workout-designer/2" xmlns="http://www.topografix.com/GPX/1/1">',
            '<trk>', f'<link href="https://intervals.icu/activities/{activity_id}"></link>', '<trkseg>']
     for i in range(n):
         ll = latlngs[i]
@@ -190,6 +193,8 @@ def download_gpx(activity_id, start_local: str | None = None) -> bytes:
             row.append(f'<speed>{vel[i]:.3f}</speed>')
         if i < len(hr) and hr[i] is not None:
             row.append(f'<hr>{int(hr[i])}</hr>')
+        if i < len(pwr) and pwr[i] is not None:
+            row.append(f'<power>{int(pwr[i])}</power>')
         row.append('</trkpt>')
         out.append(''.join(row))
     out += ['</trkseg>', '</trk>', '</gpx>']

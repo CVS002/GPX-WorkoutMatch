@@ -83,6 +83,14 @@
         </div>
         <p id="fastInfo" class="muted small"></p>
         <div id="fastList" class="fast-list"></div>
+        <div class="ride-row">
+          <button id="powerBtn" class="primary-ghost">🔌 Where I push watts (all rides)</button>
+          <label class="thresh-lab">above
+            <input type="number" id="pwrThresh" value="200" min="50" max="600" step="5"> W</label>
+          <button id="clearPower" class="hidden">✕ clear</button>
+        </div>
+        <p id="powerInfo" class="muted small"></p>
+        <div id="powerList" class="fast-list"></div>
         <div id="rideList" class="wlist ride-list"></div>
         <p id="rideInfo" class="muted small"></p>
       </div>

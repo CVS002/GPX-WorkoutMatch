@@ -111,7 +111,9 @@ def start_history_refresh(days: int = 120, max_rides: int = 200) -> str:
             for a in rides:
                 aid = a.get("id")
                 dest = HISTORY_DIR / f"{aid}.gpx"
-                if dest.exists():
+                # skip only files already produced by the power-aware (v2) builder;
+                # re-pull anything downloaded by the older power-less builder.
+                if dest.exists() and b"workout-designer/2" in dest.read_bytes()[:200]:
                     skipped += 1
                     continue
                 try:

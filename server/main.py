@@ -367,6 +367,23 @@ def ride_fast(req: RideFastReq):
     return rides.fast_overview(s["gpx"], threshold_kmh=req.threshold)
 
 
+class RidePowerReq(BaseModel):
+    route_id: str
+    threshold: float = 200.0
+
+
+@app.post("/api/rides/power")
+def ride_power(req: RidePowerReq):
+    """Best average power sustained over each stretch of the route, across the
+    overlapping rides that recorded power, plus the segments clearing the
+    threshold (watts). n_rides = 0 means no stored ride here has power yet —
+    refresh ride history so the GPX includes it."""
+    s = _sess(req.route_id)
+    if s.get("mode") == "blank":
+        raise HTTPException(400, "no route in this session")
+    return rides.power_overview(s["gpx"], threshold_w=req.threshold)
+
+
 # ------------------------------------------------- road corrections (veto) ---
 class VetoReq(BaseModel):
     route_id: str

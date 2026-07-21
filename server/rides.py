@@ -28,8 +28,9 @@ def _cell(lat: float, lon: float) -> str:
 
 
 def parse_ride(path, keep_every: int = 1):
-    """Stream-parse a history GPX -> ([(lat, lon, speed_ms|None, time|None)],
-    activity_id|None). keep_every subsamples for the cheap indexing pass."""
+    """Stream-parse a history GPX -> ([(lat, lon, speed_ms|None, power_w|None,
+    time|None)], activity_id|None). Power is present only for rides recorded with
+    a power meter. keep_every subsamples for the cheap indexing pass."""
     pts, act_id, i = [], None, 0
     for _, e in ET.iterparse(str(path)):
         tag = e.tag.rsplit("}", 1)[-1]
@@ -45,7 +46,7 @@ def parse_ride(path, keep_every: int = 1):
                     i += 1
                     e.clear()
                     continue
-                spd = tm = None
+                spd = pwr = tm = None
                 for c in e:
                     ct = c.tag.rsplit("}", 1)[-1]
                     if ct == "speed" and c.text:
@@ -53,9 +54,14 @@ def parse_ride(path, keep_every: int = 1):
                             spd = float(c.text)
                         except ValueError:
                             pass
+                    elif ct == "power" and c.text:
+                        try:
+                            pwr = float(c.text)
+                        except ValueError:
+                            pass
                     elif ct == "time" and c.text:
                         tm = c.text
-                pts.append((la, lo, spd, tm))
+                pts.append((la, lo, spd, pwr, tm))
             i += 1
             e.clear()
     return pts, act_id
@@ -69,13 +75,13 @@ def _derive_speeds(pts):
         except (ValueError, TypeError):
             return None
     out, prev = [], None
-    for la, lo, _, tm in pts:
+    for la, lo, _, pwr, tm in pts:
         ts = _ts(tm)
         spd = None
         if prev and ts and prev[2] and ts > prev[2]:
             d = engine.L1.haversine_m(prev[0], prev[1], la, lo)
             spd = d / (ts - prev[2])
-        out.append((la, lo, spd, tm))
+        out.append((la, lo, spd, pwr, tm))
         prev = (la, lo, ts)
     return out
 
@@ -108,10 +114,11 @@ def _index() -> dict:
             "mtime": mt,
             "cells": sorted({_cell(p[0], p[1]) for p in pts}),
             "activity_id": act,
-            "date": (pts[0][3] or "")[:10] if pts else "",
+            "date": (pts[0][4] or "")[:10] if pts else "",
             "distance_km": round(dist, 1),
             "avg_kmh": round(sum(spds) / len(spds) * 3.6, 1) if spds else None,
             "max_kmh": round(max(spds) * 3.6, 1) if spds else None,
+            "has_power": any(p[3] is not None for p in pts),
         }
         changed = True
     for k in list(idx):
@@ -168,28 +175,46 @@ def track(name: str, max_pts: int = 1600) -> dict:
     step = max(1, len(pts) // max_pts)
     tr = [[round(la, 5), round(lo, 5),
            round(spd * 3.6, 1) if spd is not None else None]
-          for la, lo, spd, _ in pts[::step]]
+          for la, lo, spd, _pwr, _tm in pts[::step]]
     return {"track": tr, "activity_id": act, "points": len(tr)}
 
 
-def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
-                  win_m: int = 500, sub_m: int = 100, near_m: float = 120.0) -> dict:
-    """Across EVERY past ride that overlaps this route, the best *average* speed
-    sustained over any win_m stretch of the route.
+def fast_overview(route_gpx: str, threshold_kmh: float = 33.0, **kw) -> dict:
+    """Best average SPEED (km/h) sustained over any 500 m stretch, per ride,
+    across all overlapping rides. See _window_overview."""
+    return _window_overview(route_gpx, threshold_kmh,
+                            value_of=lambda p: p[2], scale=3.6,
+                            unit="km/h", metric="speed", **kw)
+
+
+def power_overview(route_gpx: str, threshold_w: float = 200.0, **kw) -> dict:
+    """Best average POWER (W) sustained over any 500 m stretch, per ride, across
+    the overlapping rides that HAVE power (recent power-meter rides). Rides with
+    no power samples contribute nothing and aren't counted. See _window_overview."""
+    return _window_overview(route_gpx, threshold_w,
+                            value_of=lambda p: p[3], scale=1.0,
+                            unit="W", metric="power", **kw)
+
+
+def _window_overview(route_gpx, threshold, value_of, scale, unit, metric,
+                     win_m: int = 500, sub_m: int = 100, near_m: float = 120.0) -> dict:
+    """Across EVERY past ride that overlaps this route, the best *average* value
+    (speed or power) sustained over any win_m stretch of the route.
 
     A SLIDING win_m window is run along each ride (not fixed buckets), so a fast
     stretch is caught wherever it sits — never split across a bin boundary. Each
-    win_m position's value is that ride's average speed there (total distance /
-    total time, approximated by the mean of its ~1 Hz samples in the window). We
-    record, per fine sub_m sub-bin, the highest window average that covered it,
-    across all rides (with the date that set it). A sub-bin is coloured when that
-    best window average clears the threshold — i.e. some single ride *averaged*
-    at or above threshold over a win_m stretch through here. Returns the per-sub-
-    bin best plus the contiguous segments clearing threshold_kmh."""
+    window position's value is that ride's mean sample there (time-weighted, ≈
+    distance/time for speed). We record, per fine sub_m sub-bin, the highest
+    window average that covered it across all rides (with the date that set it).
+    A sub-bin is coloured when that best window average clears the threshold —
+    i.e. some single ride *averaged* at or above threshold over a win_m stretch
+    through here. value_of(point) returns the raw sample (or None to skip it);
+    rides with no usable samples don't count."""
     rpts = engine.L1.parse_points(route_gpx)
     bin_km, win_km = sub_m / 1000, win_m / 1000
     empty = {"bins": [], "segments": [], "bin_km": bin_km, "win_km": win_km,
-             "threshold": threshold_kmh, "n_rides": 0, "route_km": 0}
+             "threshold": threshold, "n_rides": 0, "route_km": 0,
+             "unit": unit, "metric": metric}
     if len(rpts) < 2:
         return empty
     cum = engine.MW.cumdist(rpts)                # metres, aligned to rpts
@@ -204,25 +229,29 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
         rindex.setdefault(_cell(p[0], p[1]), []).append(i)
     rtol_cells = _neigh({tuple(map(int, c.split(":"))) for c in rindex})
 
-    best: list = [None] * nsub                   # (win_avg_kmh, date) per sub-bin
+    best: list = [None] * nsub                   # (win_avg, date) per sub-bin
     n_rides = 0
     for name, m in _index().items():
         overlap = sum(1 for c in m.get("cells", [])
                       if tuple(map(int, c.split(":"))) in rtol_cells)
         if overlap < 3:                          # barely touches the route — skip
             continue
+        if metric == "power" and m.get("has_power") is False:
+            continue                             # cheap skip of no-power rides
         try:
             pts, _ = parse_ride(HISTORY_DIR / name, keep_every=1)
         except ET.ParseError:
             continue
-        if pts and all(x[2] is None for x in pts):
+        if metric == "speed" and pts and all(x[2] is None for x in pts):
             pts = _derive_speeds(pts)
         date = m.get("date") or ""
-        ssum = [0.0] * nsub                      # this ride: sum of sample speeds / sub-bin
-        scnt = [0] * nsub
-        for la, lo, spd, _ in pts:
-            if spd is None:
+        vsum = [0.0] * nsub                      # this ride: sum of samples / sub-bin
+        vcnt = [0] * nsub
+        for p in pts:
+            v = value_of(p)
+            if v is None:
                 continue
+            la, lo = p[0], p[1]
             ca, cb = round(la * CELL), round(lo * CELL)
             bd = bi = None
             for da in (-1, 0, 1):
@@ -234,38 +263,37 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
             if bi is None or bd > near_m:
                 continue
             k = min(nsub - 1, int(cum[bi] // sub_m))
-            ssum[k] += spd
-            scnt[k] += 1
-        if not any(scnt):
+            vsum[k] += v
+            vcnt[k] += 1
+        if not any(vcnt):
             continue
         n_rides += 1
-        # slide a WIN-wide window; a window's average = mean of its samples
-        # (time-weighted ≈ distance/time). Mark every sub-bin it covers.
-        run_s = sum(ssum[:WIN])
-        run_c = sum(scnt[:WIN])
-        run_cov = sum(1 for k in range(min(WIN, nsub)) if scnt[k])
-        last = nsub - WIN
-        for s in range(0, last + 1):
+        # slide a WIN-wide window; its average = mean of its samples. Mark every
+        # sub-bin the window covers with the max window average seen (any ride).
+        run_s = sum(vsum[:WIN])
+        run_c = sum(vcnt[:WIN])
+        run_cov = sum(1 for k in range(min(WIN, nsub)) if vcnt[k])
+        for s in range(0, nsub - WIN + 1):
             if s > 0:
                 out_, in_ = s - 1, s + WIN - 1
-                run_s += ssum[in_] - ssum[out_]
-                run_c += scnt[in_] - scnt[out_]
-                run_cov += (1 if scnt[in_] else 0) - (1 if scnt[out_] else 0)
+                run_s += vsum[in_] - vsum[out_]
+                run_c += vcnt[in_] - vcnt[out_]
+                run_cov += (1 if vcnt[in_] else 0) - (1 if vcnt[out_] else 0)
             if run_c and run_cov >= COV:
-                wavg = run_s / run_c * 3.6
+                wavg = run_s / run_c * scale
                 for k in range(s, s + WIN):
                     if best[k] is None or wavg > best[k][0]:
                         best[k] = (wavg, date)
 
     bins = [{"km": round(k * bin_km, 3),
-             "kmh": round(best[k][0], 1) if best[k] else None,
+             "val": round(best[k][0], 1) if best[k] else None,
              "date": best[k][1] if best[k] else None}
             for k in range(nsub)]
 
-    segments = _fast_segments(best, bin_km, threshold_kmh)
+    segments = _fast_segments(best, bin_km, threshold)
     return {"bins": bins, "bin_km": round(bin_km, 3), "win_km": round(win_km, 3),
-            "route_km": round(total_m / 1000, 2), "threshold": threshold_kmh,
-            "n_rides": n_rides, "segments": segments}
+            "route_km": round(total_m / 1000, 2), "threshold": threshold,
+            "n_rides": n_rides, "segments": segments, "unit": unit, "metric": metric}
 
 
 # Contiguous stretches clearing the threshold, bridging gaps up to GAP sub-bins
@@ -274,9 +302,9 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
 _SEG_GAP = 2
 
 
-def _fast_segments(best: list, bin_km: float, threshold_kmh: float) -> list:
+def _fast_segments(best: list, bin_km: float, threshold: float) -> list:
     n = len(best)
-    over = [bool(best[k]) and best[k][0] >= threshold_kmh for k in range(n)]
+    over = [bool(best[k]) and best[k][0] >= threshold for k in range(n)]
     segments, i = [], 0
     while i < n:
         if not over[i]:
@@ -298,7 +326,7 @@ def _fast_segments(best: list, bin_km: float, threshold_kmh: float) -> list:
             "km_start": round(i * bin_km, 2),
             "km_end": round((j + 1) * bin_km, 2),
             "length_km": round((j + 1 - i) * bin_km, 2),
-            "peak_kmh": round(best[seg][0], 1),
+            "peak": round(best[seg][0], 1),
             "date": best[seg][1],
         })
         i = j + 1
