@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPX Workout Designer</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header>
+    <h1>GPX Workout Designer</h1>
+    <div id="health" class="health"></div>
+  </header>
+
+  <main>
+    <!-- Step 1: upload -->
+    <section class="card" id="s1">
+      <h2><span class="n">1</span> Route</h2>
+      <div id="drop" class="drop">
+        <input type="file" id="file" accept=".gpx" hidden>
+        <p>Drop a <b>.gpx</b> here or <button class="link" id="pick">choose a file</button></p>
+      </div>
+      <div id="routeSummary" class="summary hidden"></div>
+      <p class="or-line"><span>or</span></p>
+      <button id="blankBtn">Build a workout without a route →</button>
+      <p class="muted small">A structured, time-based session (warm-up · intervals · cool-down) you build by
+        picking a workout and dragging/nudging the segments — no map, no terrain.</p>
+    </section>
+
+    <!-- Step 2: form + workout selection -->
+    <section class="card" id="s2">
+      <h2><span class="n">2</span> Your form &amp; workout</h2>
+      <div id="context"></div>
+      <div class="ftp-row">
+        <label>FTP (W) <input type="number" id="ftp" min="80" max="600" step="1"></label>
+        <label>Phase
+          <select id="phase">
+            <option>base</option><option selected>build</option>
+            <option>peak</option><option>taper</option><option>recovery</option>
+          </select>
+        </label>
+      </div>
+      <h3>Choose a workout</h3>
+      <p id="recommend" class="muted small"></p>
+      <div class="picker">
+        <input id="wsearch" type="search" placeholder="Search — e.g. 4x8, over-under, vo2, sweet spot, 20min…" autocomplete="off">
+        <div id="catchips" class="chips"></div>
+      </div>
+      <div id="wlist" class="wlist"><div class="wempty">Upload a route in Step 1 to see the workouts that fit it.</div></div>
+    </section>
+
+    <!-- Step 3: design + map -->
+    <section class="card hidden" id="s4">
+      <h2><span class="n">3</span> <span id="s4title">Design &amp; map</span> <span class="muted" id="s4sub">— review and adjust before any date</span></h2>
+      <div id="designMeta" class="dmeta"></div>
+
+      <!-- legend: separate block, each item toggles a map layer -->
+      <div id="legend" class="legend"></div>
+
+      <div class="mapwrap" id="mapwrap">
+        <svg id="map" viewBox="0 0 820 470" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Route map"></svg>
+        <div class="zoomctl">
+          <button id="zin" data-nozoom title="Zoom in">+</button>
+          <button id="zout" data-nozoom title="Zoom out">−</button>
+          <button id="zreset" data-nozoom title="Reset view">↺</button>
+        </div>
+        <span class="zoomhint muted">scroll to zoom · drag to pan · click a marker for details</span>
+      </div>
+      <p class="muted small maphint">Route coloured by road quality (green clean · amber caution · red avoid);
+        thick lines are your efforts. Click any junction or stop marker for details, Street View, or to mark it
+        “I ride through this”. Tune the segments below.</p>
+
+      <!-- past-ride speed overlay -->
+      <div id="rideBlock">
+        <h3>Compare a past ride <span class="muted small">— overlay how fast you actually rode here</span></h3>
+        <div class="ride-row">
+          <button id="findRides">Find my rides on this route</button>
+          <label class="thresh-lab">mark faster than
+            <input type="number" id="spdThresh" value="33" min="5" max="80" step="1"> km/h</label>
+          <button id="clearRide" class="hidden">✕ clear overlay</button>
+        </div>
+        <div id="rideList" class="wlist ride-list"></div>
+        <p id="rideInfo" class="muted small"></p>
+      </div>
+
+      <!-- native segment editor -->
+      <h3>Workout segments <span class="muted small" id="segHint">— ◀ ▶ move · − + resize, in 0.5 km steps</span></h3>
+      <div id="timeline" title="drag a boundary to move it"></div>
+      <div class="tablewrap">
+        <table id="segtable">
+          <thead><tr><th>Type / name</th><th class="num" id="hdrPos">Route km</th><th>Move / size</th>
+            <th class="num seg-sec">Ride</th><th class="num seg-sec">Written</th><th>%FTP</th><th class="road-col">Road</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button id="addSeg" class="hidden">+ Add segment</button>
+      <h3>intervals.icu syntax</h3>
+      <pre id="syntax" class="syntax"></pre>
+      <div id="issues"></div>
+      <label class="chk"><input type="checkbox" id="persistCorr"> save road corrections to my dossier</label>
+      <button id="toDate" class="primary">Design looks good → pick a date</button>
+    </section>
+
+    <!-- Step 4: date + push -->
+    <section class="card hidden" id="s5">
+      <h2><span class="n">4</span> Schedule</h2>
+      <div class="date-row">
+        <label>Date <input type="date" id="date"></label>
+        <button id="push" class="primary">Create workout on intervals.icu</button>
+      </div>
+      <div id="pushResult"></div>
+    </section>
+
+    <!-- Maintenance -->
+    <section class="card" id="maint">
+      <h2 class="collapse" id="maintToggle">⚙ Maintenance <span class="muted small">(caches &amp; ride history)</span></h2>
+      <div id="maintBody" class="hidden">
+        <p class="muted small">Rebuilds share the skill's caches. History refresh + OSM rebuilds need internet / your intervals.icu key.</p>
+        <div class="btns">
+          <button data-kind="history" class="maint">Refresh ride history + rebuild road/effort DB</button>
+          <button data-kind="osm_hazards" class="maint">Rebuild OSM hazards (60 km)</button>
+          <button data-kind="streets" class="maint">Rebuild street basemap</button>
+          <button data-kind="bank" class="maint">Refresh workout bank</button>
+          <button id="syncSkill" class="maint">↺ Sync engine code from skill</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="syncCaches"> also overwrite app caches with the skill's</label>
+        <pre id="jobLog" class="joblog"></pre>
+      </div>
+    </section>
+  </main>
+
+  <!-- Street View lightbox (opened from a hazard popover) -->
+  <div id="svModal" class="modal hidden">
+    <div class="modal-back" id="svBack"></div>
+    <div class="modal-card">
+      <div class="modal-hd">
+        <b>Street View</b><span id="svLoc" class="muted small"></span>
+        <a id="svOpen" href="#" target="_blank" rel="noopener" class="link">open in Google Maps ↗</a>
+        <button id="svClose" class="modal-x" title="close">✕</button>
+      </div>
+      <iframe id="svFrame" title="Google Street View" loading="lazy" allowfullscreen
+              referrerpolicy="no-referrer-when-downgrade"></iframe>
+    </div>
+  </div>
+
+  <script src="/map.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

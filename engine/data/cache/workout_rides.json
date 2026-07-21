@@ -1,0 +1,21 @@
+{
+ "synced_through": "2026-07-15",
+ "note": "planned-workout days matched to on-disk GPS rides; extend via the learn-from-workouts flow",
+ "rides": {
+  "i164994198": {
+   "date": "2026-07-12",
+   "planned": "Trainingskoers Threshold+TT v3",
+   "activity_name": "Eindhoven - Trainingskoers Threshold+TT v3"
+  },
+  "i165409425": {
+   "date": "2026-07-13",
+   "planned": "Z2 Recovery - 13-07 loop",
+   "activity_name": "Z2 Recovery - 13-07 loop"
+  },
+  "i165713903": {
+   "date": "2026-07-14",
+   "planned": "Prodrive 65 - Sweet Spot 3x4km v1",
+   "activity_name": "Prodrive 65 - Sweet Spot 3x4km v1"
+  }
+ }
+}

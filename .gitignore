@@ -1,0 +1,27 @@
+# --- secrets (NEVER commit) ---
+.env
+
+# --- Python virtualenv & bytecode ---
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# --- runtime working data (uploaded routes, generated maps, logs, index) ---
+appdata/
+
+# --- downloaded ride history: personal + large + regenerable via Maintenance ---
+engine/data/history/
+
+# --- derived engine caches: large / personal / rebuildable (OSM + ride history) ---
+engine/data/cache/*
+# ...but keep the workout library so a fresh clone can select & design immediately
+!engine/data/cache/workout_bank.json
+!engine/data/cache/workout_rides.json
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
