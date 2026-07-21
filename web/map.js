@@ -177,7 +177,7 @@
     if (!M.vis.fast || !F || !F.bins || !F.bins.length) return;
     const P = M.data.route, bk = F.binKm, th = F.threshold;
     const binAt = (km) => F.bins[Math.max(0, Math.min(F.bins.length - 1, Math.floor(km / bk)))];
-    const isFast = (km) => { const v = binAt(km); return v && v.max_kmh != null && v.max_kmh >= th; };
+    const isFast = (km) => { const v = binAt(km); return v && v.kmh != null && v.kmh >= th; };
     const pt = (p) => { const q = M.prj(p[0], p[1]); return q[0].toFixed(1) + " " + q[1].toFixed(1); };
     const col = (v) => {   // threshold → +15 km/h : amber → deep pink
       const t = Math.max(0, Math.min(1, (v - th) / 15));
@@ -187,14 +187,14 @@
     let i = 0;
     while (i < P.length - 1) {
       if (!isFast(P[i][2])) { i++; continue; }
-      let d = "M" + pt(P[i]), j = i, peak = binAt(P[i][2]).max_kmh, date = binAt(P[i][2]).date;
+      let d = "M" + pt(P[i]), j = i, peak = binAt(P[i][2]).kmh, date = binAt(P[i][2]).date;
       while (j < P.length - 1 && isFast(P[j + 1][2])) {
         j++; d += " L" + pt(P[j]);
-        const b = binAt(P[j][2]); if (b.max_kmh > peak) { peak = b.max_kmh; date = b.date; }
+        const b = binAt(P[j][2]); if (b.kmh > peak) { peak = b.kmh; date = b.date; }
       }
       if (j > i) {
         const pa = mk("path", { d, fill: "none", stroke: col(peak), "stroke-width": 5.5, opacity: .92, "stroke-linecap": "round", "stroke-linejoin": "round" });
-        pa.appendChild(tip(`⚡ best ${peak} km/h${date ? " · " + date : ""}`));
+        pa.appendChild(tip(`⚡ best avg ${peak} km/h${date ? " · " + date : ""}`));
         g.appendChild(pa); i = j;
       } else i++;
     }

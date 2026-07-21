@@ -640,8 +640,8 @@ function renderFast(r) {
   const segs = (r.segments || []).slice().sort((a, b) => b.peak_kmh - a.peak_kmh);
   const covered = segs.reduce((a, s) => a + s.length_km, 0);
   info.innerHTML = `Across <b>${r.n_rides}</b> ride${r.n_rides > 1 ? "s" : ""} on this route: <b>${segs.length}</b> ` +
-    `stretch${segs.length === 1 ? "" : "es"} where you've ever gone faster than <b>${r.threshold}</b> km/h ` +
-    `(${covered.toFixed(1)} of ${r.route_km} km). Deeper pink on the map = faster.`;
+    `stretch${segs.length === 1 ? "" : "es"} where a ride <b>averaged</b> over <b>${r.threshold}</b> km/h ` +
+    `(per ${Math.round(r.bin_km * 1000)} m, ${covered.toFixed(1)} of ${r.route_km} km). Deeper pink = faster.`;
   segs.forEach(s => {
     list.appendChild(el("div", "fast-row",
       `<b>${s.peak_kmh} km/h</b>` +
@@ -659,7 +659,7 @@ function refreshFastThreshold() {
   WDMap.setFast(r); renderFast(r);
 }
 function computeFastSegments(bins, binKm, th) {
-  const over = bins.map(b => b.max_kmh != null && b.max_kmh >= th);
+  const over = bins.map(b => b.kmh != null && b.kmh >= th);
   const segs = []; let i = 0;
   while (i < bins.length) {
     if (!over[i]) { i++; continue; }
@@ -667,11 +667,11 @@ function computeFastSegments(bins, binKm, th) {
     while (j + 1 < bins.length && (over[j + 1] || (j + 2 < bins.length && over[j + 2]))) j++;
     while (j > i && !over[j]) j--;
     let pk = i;
-    for (let k = i; k <= j; k++) if (bins[k].max_kmh > bins[pk].max_kmh) pk = k;
+    for (let k = i; k <= j; k++) if (bins[k].kmh > bins[pk].kmh) pk = k;
     segs.push({
       km_start: +(i * binKm).toFixed(2), km_end: +((j + 1) * binKm).toFixed(2),
       length_km: +((j + 1 - i) * binKm).toFixed(2),
-      peak_kmh: bins[pk].max_kmh, date: bins[pk].date,
+      peak_kmh: bins[pk].kmh, date: bins[pk].date,
     });
     i = j + 1;
   }

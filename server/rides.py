@@ -173,16 +173,18 @@ def track(name: str, max_pts: int = 1600) -> dict:
 
 
 def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
-                  bin_m: int = 200, near_m: float = 120.0) -> dict:
-    """Across EVERY past ride that overlaps this route, the fastest speed ever
-    ridden at each stretch of the route.
+                  bin_m: int = 500, near_m: float = 120.0) -> dict:
+    """Across EVERY past ride that overlaps this route, the best *average* speed
+    sustained over each stretch of the route.
 
-    The route is split into bin_m bins along its own distance axis. For each
-    ride point within near_m of the route we keep the highest speed seen in the
-    bin it snaps to (with the date it happened). Partial-overlap rides count for
-    the stretches they cover. Returns the per-bin best plus the contiguous
-    segments that clear threshold_kmh — the "where can I actually hold speed"
-    view."""
+    The route is split into bin_m bins along its own distance axis. Within one
+    ride, a bin's value is that ride's mean speed over the points that snap into
+    it (within near_m) — i.e. how fast the ride actually held that stretch, not a
+    momentary spike. Across rides we keep the highest such average (with the date
+    of the ride that set it). A bin is coloured only if some ride *averaged* at
+    or above threshold there. Partial-overlap rides count for the stretches they
+    cover. Returns the per-bin best plus the contiguous segments clearing
+    threshold_kmh — the "where can I actually hold speed" view."""
     rpts = engine.L1.parse_points(route_gpx)
     empty = {"bins": [], "segments": [], "bin_km": bin_m / 1000,
              "threshold": threshold_kmh, "n_rides": 0, "route_km": 0}
@@ -199,7 +201,7 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
         rindex.setdefault(_cell(p[0], p[1]), []).append(i)
     rtol_cells = _neigh({tuple(map(int, c.split(":"))) for c in rindex})
 
-    best: list = [None] * nbins                  # (kmh, date) per bin
+    best: list = [None] * nbins                  # (avg_kmh, date) — best ride's mean
     n_rides = 0
     for name, m in _index().items():
         overlap = sum(1 for c in m.get("cells", [])
@@ -213,7 +215,7 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
         if pts and all(x[2] is None for x in pts):
             pts = _derive_speeds(pts)
         date = m.get("date") or ""
-        used = False
+        acc: dict[int, list[float]] = {}         # bin -> [sum_ms, count] for THIS ride
         for la, lo, spd, _ in pts:
             if spd is None:
                 continue
@@ -228,15 +230,22 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
             if bi is None or bd > near_m:
                 continue
             b = min(nbins - 1, int(cum[bi] // bin_m))
-            kmh = spd * 3.6
-            if best[b] is None or kmh > best[b][0]:
-                best[b] = (kmh, date)
-            used = True
-        if used:
-            n_rides += 1
+            a = acc.get(b)
+            if a is None:
+                acc[b] = [spd, 1]
+            else:
+                a[0] += spd
+                a[1] += 1
+        if not acc:
+            continue
+        n_rides += 1
+        for b, (s, c) in acc.items():            # this ride's mean speed per bin
+            avg = s / c * 3.6
+            if best[b] is None or avg > best[b][0]:
+                best[b] = (avg, date)
 
     bins = [{"km": round(b * bin_km, 3),
-             "max_kmh": round(best[b][0], 1) if best[b] else None,
+             "kmh": round(best[b][0], 1) if best[b] else None,
              "date": best[b][1] if best[b] else None}
             for b in range(nbins)]
 
