@@ -668,7 +668,7 @@ function renderFast(r) {
   const covered = segs.reduce((a, s) => a + s.length_km, 0);
   info.innerHTML = `Across <b>${r.n_rides}</b> ride${r.n_rides > 1 ? "s" : ""} on this route: <b>${segs.length}</b> ` +
     `stretch${segs.length === 1 ? "" : "es"} where a ride <b>averaged</b> over <b>${r.threshold}</b> km/h ` +
-    `(per ${Math.round(r.bin_km * 1000)} m, ${covered.toFixed(1)} of ${r.route_km} km).`;
+    `across a ${Math.round((r.win_km || 0.5) * 1000)} m window (${covered.toFixed(1)} of ${r.route_km} km).`;
   segs.forEach(s => {
     list.appendChild(el("div", "fast-row",
       `<b>${s.peak_kmh} km/h</b>` +
@@ -685,16 +685,21 @@ function refreshFastThreshold() {
   r.segments = computeFastSegments(r.bins, r.bin_km, th);
   WDMap.setFast(r); renderFast(r);
 }
+const SEG_GAP = 2;   // mirrors _SEG_GAP in rides.py: bridge gaps up to 2 sub-bins
 function computeFastSegments(bins, binKm, th) {
   const over = bins.map(b => b.kmh != null && b.kmh >= th);
   const segs = []; let i = 0;
   while (i < bins.length) {
     if (!over[i]) { i++; continue; }
     let j = i;
-    while (j + 1 < bins.length && (over[j + 1] || (j + 2 < bins.length && over[j + 2]))) j++;
-    while (j > i && !over[j]) j--;
+    while (true) {
+      let nxt = -1;
+      for (let g = 1; g <= SEG_GAP + 1; g++) { if (j + g < bins.length && over[j + g]) { nxt = j + g; break; } }
+      if (nxt < 0) break;
+      j = nxt;
+    }
     let pk = i;
-    for (let k = i; k <= j; k++) if (bins[k].kmh > bins[pk].kmh) pk = k;
+    for (let k = i; k <= j; k++) if (over[k] && bins[k].kmh > bins[pk].kmh) pk = k;
     segs.push({
       km_start: +(i * binKm).toFixed(2), km_end: +((j + 1) * binKm).toFixed(2),
       length_km: +((j + 1 - i) * binKm).toFixed(2),

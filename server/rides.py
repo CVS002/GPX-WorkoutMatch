@@ -173,27 +173,30 @@ def track(name: str, max_pts: int = 1600) -> dict:
 
 
 def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
-                  bin_m: int = 500, near_m: float = 120.0) -> dict:
+                  win_m: int = 500, sub_m: int = 100, near_m: float = 120.0) -> dict:
     """Across EVERY past ride that overlaps this route, the best *average* speed
-    sustained over each stretch of the route.
+    sustained over any win_m stretch of the route.
 
-    The route is split into bin_m bins along its own distance axis. Within one
-    ride, a bin's value is that ride's mean speed over the points that snap into
-    it (within near_m) — i.e. how fast the ride actually held that stretch, not a
-    momentary spike. Across rides we keep the highest such average (with the date
-    of the ride that set it). A bin is coloured only if some ride *averaged* at
-    or above threshold there. Partial-overlap rides count for the stretches they
-    cover. Returns the per-bin best plus the contiguous segments clearing
-    threshold_kmh — the "where can I actually hold speed" view."""
+    A SLIDING win_m window is run along each ride (not fixed buckets), so a fast
+    stretch is caught wherever it sits — never split across a bin boundary. Each
+    win_m position's value is that ride's average speed there (total distance /
+    total time, approximated by the mean of its ~1 Hz samples in the window). We
+    record, per fine sub_m sub-bin, the highest window average that covered it,
+    across all rides (with the date that set it). A sub-bin is coloured when that
+    best window average clears the threshold — i.e. some single ride *averaged*
+    at or above threshold over a win_m stretch through here. Returns the per-sub-
+    bin best plus the contiguous segments clearing threshold_kmh."""
     rpts = engine.L1.parse_points(route_gpx)
-    empty = {"bins": [], "segments": [], "bin_km": bin_m / 1000,
+    bin_km, win_km = sub_m / 1000, win_m / 1000
+    empty = {"bins": [], "segments": [], "bin_km": bin_km, "win_km": win_km,
              "threshold": threshold_kmh, "n_rides": 0, "route_km": 0}
     if len(rpts) < 2:
         return empty
     cum = engine.MW.cumdist(rpts)                # metres, aligned to rpts
     total_m = cum[-1]
-    bin_km = bin_m / 1000
-    nbins = int(total_m // bin_m) + 1
+    nsub = int(total_m // sub_m) + 1
+    WIN = max(1, round(win_m / sub_m))           # sub-bins per sliding window
+    COV = max(1, int(WIN * 0.7))                 # min covered sub-bins to trust a window
 
     # spatial index of route points by cell, for cheap nearest-point lookup
     rindex: dict[str, list[int]] = {}
@@ -201,7 +204,7 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
         rindex.setdefault(_cell(p[0], p[1]), []).append(i)
     rtol_cells = _neigh({tuple(map(int, c.split(":"))) for c in rindex})
 
-    best: list = [None] * nbins                  # (avg_kmh, date) — best ride's mean
+    best: list = [None] * nsub                   # (win_avg_kmh, date) per sub-bin
     n_rides = 0
     for name, m in _index().items():
         overlap = sum(1 for c in m.get("cells", [])
@@ -209,13 +212,14 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
         if overlap < 3:                          # barely touches the route — skip
             continue
         try:
-            pts, _ = parse_ride(HISTORY_DIR / name, keep_every=2)
+            pts, _ = parse_ride(HISTORY_DIR / name, keep_every=1)
         except ET.ParseError:
             continue
         if pts and all(x[2] is None for x in pts):
             pts = _derive_speeds(pts)
         date = m.get("date") or ""
-        acc: dict[int, list[float]] = {}         # bin -> [sum_ms, count] for THIS ride
+        ssum = [0.0] * nsub                      # this ride: sum of sample speeds / sub-bin
+        scnt = [0] * nsub
         for la, lo, spd, _ in pts:
             if spd is None:
                 continue
@@ -229,39 +233,67 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
                             bd, bi = d, i
             if bi is None or bd > near_m:
                 continue
-            b = min(nbins - 1, int(cum[bi] // bin_m))
-            a = acc.get(b)
-            if a is None:
-                acc[b] = [spd, 1]
-            else:
-                a[0] += spd
-                a[1] += 1
-        if not acc:
+            k = min(nsub - 1, int(cum[bi] // sub_m))
+            ssum[k] += spd
+            scnt[k] += 1
+        if not any(scnt):
             continue
         n_rides += 1
-        for b, (s, c) in acc.items():            # this ride's mean speed per bin
-            avg = s / c * 3.6
-            if best[b] is None or avg > best[b][0]:
-                best[b] = (avg, date)
+        # slide a WIN-wide window; a window's average = mean of its samples
+        # (time-weighted ≈ distance/time). Mark every sub-bin it covers.
+        run_s = sum(ssum[:WIN])
+        run_c = sum(scnt[:WIN])
+        run_cov = sum(1 for k in range(min(WIN, nsub)) if scnt[k])
+        last = nsub - WIN
+        for s in range(0, last + 1):
+            if s > 0:
+                out_, in_ = s - 1, s + WIN - 1
+                run_s += ssum[in_] - ssum[out_]
+                run_c += scnt[in_] - scnt[out_]
+                run_cov += (1 if scnt[in_] else 0) - (1 if scnt[out_] else 0)
+            if run_c and run_cov >= COV:
+                wavg = run_s / run_c * 3.6
+                for k in range(s, s + WIN):
+                    if best[k] is None or wavg > best[k][0]:
+                        best[k] = (wavg, date)
 
-    bins = [{"km": round(b * bin_km, 3),
-             "kmh": round(best[b][0], 1) if best[b] else None,
-             "date": best[b][1] if best[b] else None}
-            for b in range(nbins)]
+    bins = [{"km": round(k * bin_km, 3),
+             "kmh": round(best[k][0], 1) if best[k] else None,
+             "date": best[k][1] if best[k] else None}
+            for k in range(nsub)]
 
-    # contiguous stretches at/above threshold; bridge a single sub-threshold bin
+    segments = _fast_segments(best, bin_km, threshold_kmh)
+    return {"bins": bins, "bin_km": round(bin_km, 3), "win_km": round(win_km, 3),
+            "route_km": round(total_m / 1000, 2), "threshold": threshold_kmh,
+            "n_rides": n_rides, "segments": segments}
+
+
+# Contiguous stretches clearing the threshold, bridging gaps up to GAP sub-bins
+# so a brief dip doesn't fragment a stretch. Mirrored client-side (computeFastSegments)
+# so the threshold slider re-slices identically without a server round-trip.
+_SEG_GAP = 2
+
+
+def _fast_segments(best: list, bin_km: float, threshold_kmh: float) -> list:
+    n = len(best)
+    over = [bool(best[k]) and best[k][0] >= threshold_kmh for k in range(n)]
     segments, i = [], 0
-    over = [bool(best[b]) and best[b][0] >= threshold_kmh for b in range(nbins)]
-    while i < nbins:
+    while i < n:
         if not over[i]:
             i += 1
             continue
         j = i
-        while j + 1 < nbins and (over[j + 1] or (j + 2 < nbins and over[j + 2])):
-            j += 1
-        while j > i and not over[j]:             # trim a trailing bridge bin
-            j -= 1
-        seg = max(range(i, j + 1), key=lambda b: best[b][0] if best[b] else -1.0)
+        while True:
+            nxt = -1
+            for g in range(1, _SEG_GAP + 2):
+                if j + g < n and over[j + g]:
+                    nxt = j + g
+                    break
+            if nxt < 0:
+                break
+            j = nxt
+        seg = max((k for k in range(i, j + 1) if over[k]),
+                  key=lambda k: best[k][0])
         segments.append({
             "km_start": round(i * bin_km, 2),
             "km_end": round((j + 1) * bin_km, 2),
@@ -270,7 +302,4 @@ def fast_overview(route_gpx: str, threshold_kmh: float = 33.0,
             "date": best[seg][1],
         })
         i = j + 1
-
-    return {"bins": bins, "bin_km": round(bin_km, 3),
-            "route_km": round(total_m / 1000, 2), "threshold": threshold_kmh,
-            "n_rides": n_rides, "segments": segments}
+    return segments
