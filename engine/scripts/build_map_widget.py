@@ -59,7 +59,7 @@ def fetch_streets(pts, buffer_m=250, max_points=9000):
             keep.append(i); last = i
     coords = ",".join(f"{pts[i][0]:.5f},{pts[i][1]:.5f}" for i in keep)
     roads = ("primary|secondary|tertiary|unclassified|residential|living_street|"
-             "primary_link|secondary_link|tertiary_link|cycleway|track|road")
+             "primary_link|secondary_link|tertiary_link|service|cycleway|track|path|road")
     q = (f"[out:json][timeout:60];way(around:{buffer_m},{coords})"
          f'["highway"~"^({roads})$"];out geom;')
     try:
@@ -71,6 +71,13 @@ def fetch_streets(pts, buffer_m=250, max_points=9000):
     except Exception as e:  # noqa: BLE001
         print(f"  (streets skipped: {type(e).__name__})")
         return []
+    def kind(tags):
+        hw = tags.get("highway", "")
+        if (hw == "cycleway" or tags.get("bicycle") in ("designated", "yes")
+                or tags.get("cyclestreet") == "yes" or tags.get("bicycle_road") == "yes"):
+            return "cycle"
+        return "road"
+
     lines, n = [], 0
     for el in raw.get("elements", []):
         g = el.get("geometry")
@@ -85,17 +92,9 @@ def fetch_streets(pts, buffer_m=250, max_points=9000):
                 poly.append([round(b["lat"], 5), round(b["lon"], 5)]); acc = 0.0
         if poly[-1] != [round(g[-1]["lat"], 5), round(g[-1]["lon"], 5)]:
             poly.append([round(g[-1]["lat"], 5), round(g[-1]["lon"], 5)])
-        lines.append(poly); n += len(poly)
-    if n > max_points:  # too dense — drop shortest ways until under budget
-        lines.sort(key=len, reverse=True)
-        out, tot = [], 0
-        for p in lines:
-            if tot + len(p) > max_points:
-                break
-            out.append(p); tot += len(p)
-        lines = out
-        print(f"  (streets capped to {tot} pts across {len(lines)} ways)")
-    print(f"  streets: {len(lines)} ways, {sum(len(p) for p in lines)} pts")
+        lines.append({"g": poly, "k": kind(el.get("tags", {}))}); n += len(poly)
+    lines = _cap_ways(lines, max_points)
+    print(f"  streets: {len(lines)} ways, {sum(len(w['g']) for w in lines)} pts")
     return lines
 
 
@@ -108,6 +107,34 @@ def _route_bbox(pts):
     return min(la), min(lo), max(la), max(lo)
 
 
+def _cap_ways(ways, max_points, cycle_frac=0.45):
+    """Trim [{g,k}] to a point budget, keeping a road/cycleway MIX: reserve a
+    share for cycleways (so the dense NL cycle network doesn't crowd out roads,
+    nor vice-versa), fill each by longest-first, then top up with whatever's left."""
+    if sum(len(w["g"]) for w in ways) <= max_points:
+        return ways
+    by_len = lambda ws: sorted(ws, key=lambda w: len(w["g"]), reverse=True)
+    cyc = by_len([w for w in ways if w["k"] == "cycle"])
+    road = by_len([w for w in ways if w["k"] != "cycle"])
+    cyc_budget = int(max_points * cycle_frac)
+    chosen, used, seen = [], 0, set()
+
+    def fill(src, budget):
+        nonlocal used
+        spent = 0
+        for w in src:
+            n = len(w["g"])
+            if spent + n <= budget:
+                chosen.append(w); seen.add(id(w)); spent += n; used += n
+
+    fill(road, max_points - cyc_budget)
+    fill(cyc, cyc_budget)
+    for w in by_len(ways):                       # top up leftover budget, any type
+        if id(w) not in seen and used + len(w["g"]) <= max_points:
+            chosen.append(w); seen.add(id(w)); used += len(w["g"])
+    return chosen
+
+
 def streets_from_cache(cache, pts, buffer_m, max_points):
     """Select cached ways within the route's bounding box (+ buffer), offline.
     Returns None if the route isn't fully inside the cached box (caller then
@@ -118,17 +145,16 @@ def streets_from_cache(cache, pts, buffer_m, max_points):
         return None
     m = buffer_m / 111000.0 + 0.003
     box = (s - m, w - m, n + m, e + m)
-    lines = [way["g"] for way in cache["ways"]
+
+    def kind(way):
+        return way.get("k") or ("cycle" if way.get("c") == "cycleway" else "road")
+
+    lines = [{"g": way["g"], "k": kind(way)} for way in cache["ways"]
              if any(box[0] <= p[0] <= box[2] and box[1] <= p[1] <= box[3] for p in way["g"])]
-    if sum(len(p) for p in lines) > max_points:
-        lines.sort(key=len, reverse=True)
-        out, tot = [], 0
-        for p in lines:
-            if tot + len(p) > max_points:
-                break
-            out.append(p); tot += len(p)
-        lines = out
-    print(f"  streets: {len(lines)} ways from cache ({sum(len(p) for p in lines)} pts)")
+    lines = _cap_ways(lines, max_points)
+    ncy = sum(1 for w in lines if w["k"] == "cycle")
+    print(f"  streets: {len(lines)} ways from cache ({ncy} cycle, "
+          f"{sum(len(w['g']) for w in lines)} pts)")
     return lines
 
 

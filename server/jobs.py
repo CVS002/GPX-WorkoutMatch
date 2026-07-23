@@ -15,8 +15,11 @@ from . import icu
 
 HISTORY_DIR = config.DATA_DIR / "history"
 
-# Full arterial + residential + cycleway street network for the basemap.
-STREET_CLASSES = "primary,secondary,tertiary,unclassified,residential,living_street,cycleway"
+# Dense basemap: arterial + residential + cycling infrastructure
+# (cycleway/path/track). build_street_cache also matches the _link variants and
+# tags each way cycle|road so the map can style cycleways distinctly. (service is
+# left out on purpose — driveways/parking aisles would balloon the regional cache.)
+STREET_CLASSES = "primary,secondary,tertiary,unclassified,residential,living_street,cycleway,track,path"
 
 _JOBS: dict[str, dict] = {}
 _LOCK = threading.Lock()
@@ -94,7 +97,7 @@ def start(kind: str) -> str:
     return jid
 
 
-def start_history_refresh(days: int = 120, max_rides: int = 200) -> str:
+def start_history_refresh(days: int = 360, max_rides: int = 600) -> str:
     """Download recent-ride GPX into data/history (GPX, never streams — longitude
     bug), then rebuild the road + effort caches so new roads are learned."""
     jid = _new_job(f"Refresh ride history ({days} d) + rebuild road/effort DB")

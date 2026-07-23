@@ -29,7 +29,7 @@
   const M = {
     svg: null, wrap: null, opts: {},
     data: null, segs: [], ride: null, rideThresh: 33, fast: null, power: null,
-    vis: { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false, power: false },
+    vis: { streets: true, cycle: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false, power: false },
     g: {}, prj: null, XY: [], KM: [], vb: { x: 0, y: 0, w: VBW, h: VBH },
   };
 
@@ -72,11 +72,16 @@
   // ---- layers ----
   function drawStreets() {
     const g = M.g.streets; g.innerHTML = "";
-    if (!M.vis.streets) return;
+    if (!M.vis.streets && !M.vis.cycle) return;
     (M.data.streets || []).forEach(way => {
-      if (way.length < 2) return;
-      const d = "M" + way.map(p => { const [x, y] = M.prj(p[0], p[1]); return x.toFixed(1) + " " + y.toFixed(1); }).join(" L");
-      g.appendChild(mk("path", { d, fill: "none", stroke: "var(--tl-street,#c9c9c4)", "stroke-width": 1, "stroke-linecap": "round", opacity: .7 }));
+      const pts = way.g || way;                 // {g,k} (v2) or bare polyline (legacy)
+      if (!pts || pts.length < 2) return;
+      const cycle = way.k === "cycle";
+      if (cycle ? !M.vis.cycle : !M.vis.streets) return;
+      const d = "M" + pts.map(p => { const [x, y] = M.prj(p[0], p[1]); return x.toFixed(1) + " " + y.toFixed(1); }).join(" L");
+      g.appendChild(cycle
+        ? mk("path", { d, fill: "none", stroke: "var(--tl-cycle,#0e9aa7)", "stroke-width": 1.5, "stroke-dasharray": "4 3", "stroke-linecap": "round", opacity: .9 })
+        : mk("path", { d, fill: "none", stroke: "var(--tl-street,#c9c9c4)", "stroke-width": 1, "stroke-linecap": "round", opacity: .7 }));
     });
   }
   function colAtKm(km) { return M.vis.effort ? (TIER[tierAtKm(km)] || TIER.m) : NEUTRAL; }
@@ -176,21 +181,22 @@
   function drawOverlay(name, F, color, prefix) {
     const g = M.g[name]; g.innerHTML = "";
     if (!M.vis[name] || !F || !F.bins || !F.bins.length) return;
-    const P = M.data.route, bk = F.binKm, th = F.threshold, unit = F.unit || "";
+    const P = M.data.route, bk = F.binKm, th = F.threshold, unit = F.unit || "", cu = F.compUnit || "";
     const binAt = (km) => F.bins[Math.max(0, Math.min(F.bins.length - 1, Math.floor(km / bk)))];
     const isOver = (km) => { const v = binAt(km); return v && v.val != null && v.val >= th; };
     const pt = (p) => { const q = M.prj(p[0], p[1]); return q[0].toFixed(1) + " " + q[1].toFixed(1); };
     let i = 0;
     while (i < P.length - 1) {
       if (!isOver(P[i][2])) { i++; continue; }
-      let d = "M" + pt(P[i]), j = i, peak = binAt(P[i][2]).val, date = binAt(P[i][2]).date;
+      let b0 = binAt(P[i][2]);
+      let d = "M" + pt(P[i]), j = i, peak = b0.val, comp = b0.comp, date = b0.date;
       while (j < P.length - 1 && isOver(P[j + 1][2])) {
         j++; d += " L" + pt(P[j]);
-        const b = binAt(P[j][2]); if (b.val > peak) { peak = b.val; date = b.date; }
+        const b = binAt(P[j][2]); if (b.val > peak) { peak = b.val; comp = b.comp; date = b.date; }
       }
       if (j > i) {
         const pa = mk("path", { d, fill: "none", stroke: color, "stroke-width": 5.5, opacity: .92, "stroke-linecap": "round", "stroke-linejoin": "round" });
-        pa.appendChild(tip(`${prefix} ${peak} ${unit}${date ? " · " + date : ""}`));
+        pa.appendChild(tip(`${prefix} ${peak} ${unit}${comp != null ? " · " + comp + " " + cu : ""}${date ? " · " + date : ""}`));
         g.appendChild(pa); i = j;
       } else i++;
     }
@@ -303,11 +309,11 @@
     setSegs(segs) { M.segs = (segs || []).map(s => ({ ...s })); if (M.data) redrawDynamic(); },
     setRide(track, thresh) { M.ride = track; if (thresh) M.rideThresh = thresh; if (M.data) drawRide(); },
     setFast(overview) {
-      M.fast = overview ? { bins: overview.bins, binKm: overview.bin_km, threshold: overview.threshold, unit: overview.unit } : null;
+      M.fast = overview ? { bins: overview.bins, binKm: overview.bin_km, threshold: overview.threshold, unit: overview.unit, compUnit: overview.comp_unit } : null;
       if (M.data) drawFast();
     },
     setPower(overview) {
-      M.power = overview ? { bins: overview.bins, binKm: overview.bin_km, threshold: overview.threshold, unit: overview.unit } : null;
+      M.power = overview ? { bins: overview.bins, binKm: overview.bin_km, threshold: overview.threshold, unit: overview.unit, compUnit: overview.comp_unit } : null;
       if (M.data) drawPower();
     },
     setLayers(vis) { Object.assign(M.vis, vis); if (M.data) redrawAll(); },

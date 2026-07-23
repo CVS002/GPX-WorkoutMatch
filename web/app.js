@@ -663,7 +663,7 @@ function computeSegments(bins, binKm, th) {
     segs.push({
       km_start: +(i * binKm).toFixed(2), km_end: +((j + 1) * binKm).toFixed(2),
       length_km: +((j + 1 - i) * binKm).toFixed(2),
-      peak: bins[pk].val, date: bins[pk].date,
+      peak: bins[pk].val, comp: bins[pk].comp, date: bins[pk].date,
     });
     i = j + 1;
   }
@@ -682,9 +682,10 @@ function makeOverlay(cfg) {
       `stretch${segs.length === 1 ? "" : "es"} where a ride <b>averaged</b> over <b>${r.threshold}</b> ${r.unit} ` +
       `across a ${Math.round((r.win_km || 0.5) * 1000)} m window (${covered.toFixed(1)} of ${r.route_km} km).`;
     segs.forEach(s => list().appendChild(el("div", "fast-row",
-      `<b>${s.peak} ${r.unit}</b>` +
-      `<span class='fr-km'>km ${s.km_start.toFixed(1)}–${s.km_end.toFixed(1)} · ${s.length_km.toFixed(1)} km</span>` +
-      `<span class='fr-date muted small'>${s.date || ""}</span>`)));
+      `<div class='fr-top'><b>${s.peak} ${r.unit}</b>` +
+      (s.comp != null ? `<span class='fr-comp'>${s.comp} ${r.comp_unit}</span>` : "") +
+      `<span class='fr-date'>${s.date || ""}</span></div>` +
+      `<div class='fr-km'>km ${s.km_start.toFixed(1)}–${s.km_end.toFixed(1)} · ${s.length_km.toFixed(1)} km</div>`)));
   }
   async function run() {
     if (state.mode === "blank" || !WDMap.hasData()) return;
@@ -753,8 +754,9 @@ const LEGEND = [
   { sw: `<span class='sw tri'></span>`, t: "give-way", key: "giveway" },
   { sw: `<span class='sw ring'></span>`, t: "stops", key: "stops" },
   { sw: `<span class='sw ln' style='background:#c9c9c4'></span>`, t: "streets", key: "streets" },
+  { sw: `<span class='sw ln' style='background:#0e9aa7'></span>`, t: "cycleways", key: "cycle" },
 ];
-const layerVis = { streets: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false, power: false };
+const layerVis = { streets: true, cycle: true, effort: true, bands: true, signals: true, giveway: true, priority: true, stops: true, ride: true, fast: false, power: false };
 function buildLegend() {
   const box = $("#legend"); box.innerHTML = "";
   LEGEND.forEach(item => {

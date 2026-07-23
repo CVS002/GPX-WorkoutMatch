@@ -179,24 +179,27 @@ def track(name: str, max_pts: int = 1600) -> dict:
     return {"track": tr, "activity_id": act, "points": len(tr)}
 
 
+_SPEED = (lambda p: p[2], 3.6, "km/h")   # value_of, scale, unit
+_POWER = (lambda p: p[3], 1.0, "W")
+
+
 def fast_overview(route_gpx: str, threshold_kmh: float = 33.0, **kw) -> dict:
     """Best average SPEED (km/h) sustained over any 500 m stretch, per ride,
-    across all overlapping rides. See _window_overview."""
-    return _window_overview(route_gpx, threshold_kmh,
-                            value_of=lambda p: p[2], scale=3.6,
-                            unit="km/h", metric="speed", **kw)
+    across all overlapping rides — plus the power averaged over the same stretch
+    by the ride that set it (when it had a power meter). See _window_overview."""
+    return _window_overview(route_gpx, threshold_kmh, _SPEED, _POWER,
+                            metric="speed", **kw)
 
 
 def power_overview(route_gpx: str, threshold_w: float = 200.0, **kw) -> dict:
     """Best average POWER (W) sustained over any 500 m stretch, per ride, across
-    the overlapping rides that HAVE power (recent power-meter rides). Rides with
-    no power samples contribute nothing and aren't counted. See _window_overview."""
-    return _window_overview(route_gpx, threshold_w,
-                            value_of=lambda p: p[3], scale=1.0,
-                            unit="W", metric="power", **kw)
+    the overlapping rides that HAVE power — plus the speed over the same stretch.
+    Rides with no power contribute nothing and aren't counted. See _window_overview."""
+    return _window_overview(route_gpx, threshold_w, _POWER, _SPEED,
+                            metric="power", **kw)
 
 
-def _window_overview(route_gpx, threshold, value_of, scale, unit, metric,
+def _window_overview(route_gpx, threshold, primary, companion, metric,
                      win_m: int = 500, sub_m: int = 100, near_m: float = 120.0) -> dict:
     """Across EVERY past ride that overlaps this route, the best *average* value
     (speed or power) sustained over any win_m stretch of the route.
@@ -205,16 +208,19 @@ def _window_overview(route_gpx, threshold, value_of, scale, unit, metric,
     stretch is caught wherever it sits — never split across a bin boundary. Each
     window position's value is that ride's mean sample there (time-weighted, ≈
     distance/time for speed). We record, per fine sub_m sub-bin, the highest
-    window average that covered it across all rides (with the date that set it).
+    window average that covered it across all rides (with the date that set it),
+    plus the COMPANION metric averaged over that same winning window/ride (speed
+    for the power view, power for the speed view — None if that ride lacked it).
     A sub-bin is coloured when that best window average clears the threshold —
     i.e. some single ride *averaged* at or above threshold over a win_m stretch
-    through here. value_of(point) returns the raw sample (or None to skip it);
-    rides with no usable samples don't count."""
+    through here. Rides with no usable primary samples don't count."""
+    value_of, scale, unit = primary
+    comp_of, cscale, comp_unit = companion
     rpts = engine.L1.parse_points(route_gpx)
     bin_km, win_km = sub_m / 1000, win_m / 1000
     empty = {"bins": [], "segments": [], "bin_km": bin_km, "win_km": win_km,
              "threshold": threshold, "n_rides": 0, "route_km": 0,
-             "unit": unit, "metric": metric}
+             "unit": unit, "metric": metric, "comp_unit": comp_unit}
     if len(rpts) < 2:
         return empty
     cum = engine.MW.cumdist(rpts)                # metres, aligned to rpts
@@ -229,7 +235,7 @@ def _window_overview(route_gpx, threshold, value_of, scale, unit, metric,
         rindex.setdefault(_cell(p[0], p[1]), []).append(i)
     rtol_cells = _neigh({tuple(map(int, c.split(":"))) for c in rindex})
 
-    best: list = [None] * nsub                   # (win_avg, date) per sub-bin
+    best: list = [None] * nsub                   # (win_avg, comp_avg|None, date)
     n_rides = 0
     for name, m in _index().items():
         overlap = sum(1 for c in m.get("cells", [])
@@ -242,11 +248,13 @@ def _window_overview(route_gpx, threshold, value_of, scale, unit, metric,
             pts, _ = parse_ride(HISTORY_DIR / name, keep_every=1)
         except ET.ParseError:
             continue
-        if metric == "speed" and pts and all(x[2] is None for x in pts):
-            pts = _derive_speeds(pts)
+        if pts and all(x[2] is None for x in pts):
+            pts = _derive_speeds(pts)            # so companion speed exists too
         date = m.get("date") or ""
-        vsum = [0.0] * nsub                      # this ride: sum of samples / sub-bin
+        vsum = [0.0] * nsub                      # primary sum / sub-bin
         vcnt = [0] * nsub
+        csum = [0.0] * nsub                      # companion sum / sub-bin
+        ccnt = [0] * nsub
         for p in pts:
             v = value_of(p)
             if v is None:
@@ -265,35 +273,43 @@ def _window_overview(route_gpx, threshold, value_of, scale, unit, metric,
             k = min(nsub - 1, int(cum[bi] // sub_m))
             vsum[k] += v
             vcnt[k] += 1
+            cv = comp_of(p)
+            if cv is not None:
+                csum[k] += cv
+                ccnt[k] += 1
         if not any(vcnt):
             continue
         n_rides += 1
         # slide a WIN-wide window; its average = mean of its samples. Mark every
-        # sub-bin the window covers with the max window average seen (any ride).
-        run_s = sum(vsum[:WIN])
-        run_c = sum(vcnt[:WIN])
+        # sub-bin the window covers with the max window average seen (any ride),
+        # recording the companion average over the same window.
+        run_s = sum(vsum[:WIN]); run_c = sum(vcnt[:WIN])
+        run_cs = sum(csum[:WIN]); run_cc = sum(ccnt[:WIN])
         run_cov = sum(1 for k in range(min(WIN, nsub)) if vcnt[k])
         for s in range(0, nsub - WIN + 1):
             if s > 0:
                 out_, in_ = s - 1, s + WIN - 1
-                run_s += vsum[in_] - vsum[out_]
-                run_c += vcnt[in_] - vcnt[out_]
+                run_s += vsum[in_] - vsum[out_]; run_c += vcnt[in_] - vcnt[out_]
+                run_cs += csum[in_] - csum[out_]; run_cc += ccnt[in_] - ccnt[out_]
                 run_cov += (1 if vcnt[in_] else 0) - (1 if vcnt[out_] else 0)
             if run_c and run_cov >= COV:
                 wavg = run_s / run_c * scale
                 for k in range(s, s + WIN):
                     if best[k] is None or wavg > best[k][0]:
-                        best[k] = (wavg, date)
+                        comp = round(run_cs / run_cc * cscale, 1) if run_cc else None
+                        best[k] = (wavg, comp, date)
 
     bins = [{"km": round(k * bin_km, 3),
              "val": round(best[k][0], 1) if best[k] else None,
-             "date": best[k][1] if best[k] else None}
+             "comp": best[k][1] if best[k] else None,
+             "date": best[k][2] if best[k] else None}
             for k in range(nsub)]
 
     segments = _fast_segments(best, bin_km, threshold)
     return {"bins": bins, "bin_km": round(bin_km, 3), "win_km": round(win_km, 3),
             "route_km": round(total_m / 1000, 2), "threshold": threshold,
-            "n_rides": n_rides, "segments": segments, "unit": unit, "metric": metric}
+            "n_rides": n_rides, "segments": segments,
+            "unit": unit, "metric": metric, "comp_unit": comp_unit}
 
 
 # Contiguous stretches clearing the threshold, bridging gaps up to GAP sub-bins
@@ -327,7 +343,8 @@ def _fast_segments(best: list, bin_km: float, threshold: float) -> list:
             "km_end": round((j + 1) * bin_km, 2),
             "length_km": round((j + 1 - i) * bin_km, 2),
             "peak": round(best[seg][0], 1),
-            "date": best[seg][1],
+            "comp": best[seg][1],
+            "date": best[seg][2],
         })
         i = j + 1
     return segments

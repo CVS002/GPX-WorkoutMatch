@@ -35,7 +35,19 @@ DEFAULT_HAZ = os.path.join(HERE, "..", "data", "cache", "osm_hazards.json")
 DEFAULT_DB = os.path.join(HERE, "..", "data", "cache", "road_db.json")
 ARTERIAL = ["primary", "secondary", "tertiary",
             "primary_link", "secondary_link", "tertiary_link", "unclassified"]
-CACHE_VERSION = 1
+CACHE_VERSION = 2               # v2 ways carry a "k" (cycle|road) kind flag
+
+
+def street_kind(tags):
+    """Classify a way for the basemap: 'cycle' for cycling infrastructure
+    (dedicated cycleways, bike-designated paths, NL fietsstraten), else 'road'."""
+    hw = tags.get("highway", "")
+    if (hw == "cycleway"
+            or tags.get("bicycle") in ("designated", "yes")
+            or tags.get("cyclestreet") == "yes"
+            or tags.get("bicycle_road") == "yes"):
+        return "cycle"
+    return "road"
 
 
 def run_overpass(query):
@@ -96,18 +108,22 @@ def main():
     print(f"box {wkm:.0f}x{hkm:.0f} km  classes={classes}")
 
     cls = "|".join(classes)
-    q = (f"[out:json][timeout:180];way[highway~\"^({cls})$\"]"
+    q = (f"[out:json][timeout:180];way[highway~\"^({cls})(_link)?$\"]"
          f"({s:.5f},{w:.5f},{n:.5f},{e:.5f});out geom;")
     raw = run_overpass(q)
 
-    ways, npts = [], 0
+    ways, npts, ncycle = [], 0, 0
     for el in raw.get("elements", []):
         g = el.get("geometry")
         if not g or len(g) < 2:
             continue
-        cl = el.get("tags", {}).get("highway", "road")
+        tags = el.get("tags", {})
+        cl = tags.get("highway", "road")
+        k = street_kind(tags)
+        if k == "cycle":
+            ncycle += 1
         poly = decimate(g, step_m)
-        ways.append({"c": cl, "g": poly})
+        ways.append({"c": cl, "k": k, "g": poly})
         npts += len(poly)
 
     payload = {
@@ -120,7 +136,7 @@ def main():
     os.makedirs(os.path.dirname(out), exist_ok=True)
     json.dump(payload, open(out, "w", encoding="utf-8"), separators=(",", ":"))
     mb = os.path.getsize(out) / 1e6
-    print(f"street cache: {len(ways)} ways, {npts} pts, {mb:.2f} MB -> {out}")
+    print(f"street cache: {len(ways)} ways ({ncycle} cycle), {npts} pts, {mb:.2f} MB -> {out}")
 
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ def _streets(gpx_path: str) -> list:
     returns [] when the street cache is absent."""
     try:
         pts = engine.L1.parse_points(gpx_path)
-        return MW.get_streets(pts, buffer_m=280, max_points=18000, use_cache=True)
+        return MW.get_streets(pts, buffer_m=320, max_points=26000, use_cache=True)
     except Exception:  # noqa: BLE001
         return []
 
