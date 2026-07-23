@@ -97,7 +97,7 @@ def start(kind: str) -> str:
     return jid
 
 
-def start_history_refresh(days: int = 360, max_rides: int = 600) -> str:
+def start_history_refresh(days: int = 760, max_rides: int = 1200) -> str:
     """Download recent-ride GPX into data/history (GPX, never streams — longitude
     bug), then rebuild the road + effort caches so new roads are learned."""
     jid = _new_job(f"Refresh ride history ({days} d) + rebuild road/effort DB")
