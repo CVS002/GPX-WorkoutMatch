@@ -146,6 +146,93 @@ def _avoid_start(a, danger, block_end=None):
     return round(a, 2)
 
 
+# ---- learned capability: where your own rides say you can hold the effort ----
+_CAP_CACHE: dict[str, dict] = {}
+
+
+def _capability(gpx_path: str) -> dict:
+    """Per-100 m best speed (all rides) and best power (power-meter rides) along
+    the route, from ride history. Memoised per route — history doesn't change
+    mid-session. spd[i]/pwr[i] share the same bin index."""
+    cap = _CAP_CACHE.get(gpx_path)
+    if cap is None:
+        from . import rides                      # local: avoids import cycle
+        sp = rides.fast_overview(gpx_path)        # bins.val = speed km/h
+        pw = rides.power_overview(gpx_path)       # bins.val = power W
+        cap = {"bin_km": sp.get("bin_km", 0.1),
+               "spd": [b["val"] for b in sp["bins"]],
+               "pwr": [b["val"] for b in pw["bins"]],
+               "n_spd": sp["n_rides"], "n_pwr": pw["n_rides"]}
+        _CAP_CACHE[gpx_path] = cap
+    return cap
+
+
+def _spd_bar(cap: dict, pctl: int = 45) -> float | None:
+    """Route-adaptive effort-holdable speed: the pctl-th percentile of your
+    best-per-100 m speeds along it (hilly routes get a lower bar than flat)."""
+    svals = sorted(v for v in cap["spd"] if v is not None)
+    if not svals:
+        return None
+    return svals[min(len(svals) - 1, int(len(svals) * pctl / 100))]
+
+
+def _bin_supported(cap, k, target_w, spd_thr) -> bool:
+    """Does your history support a hard effort at bin k? Power where measured
+    (>= target_w), otherwise effort-holdable speed (>= spd_thr)."""
+    pwr, spd = cap["pwr"], cap["spd"]
+    if pwr[k] is not None:
+        return pwr[k] >= target_w
+    return spd[k] is not None and spd_thr is not None and spd[k] >= spd_thr
+
+
+def _block_support(block, cap, target_w, spd_thr):
+    """Fraction of a block's length your history supports, + mean over-bar margin."""
+    bk, n = cap["bin_km"], len(cap["spd"])
+    k0, k1 = int(block["start_km"] / bk), int(block["end_km"] / bk)
+    tot = sup = 0
+    margins = []
+    for k in range(max(0, k0), min(n, k1)):
+        tot += 1
+        if _bin_supported(cap, k, target_w, spd_thr):
+            sup += 1
+            if cap["pwr"][k] is not None and target_w > 0:
+                margins.append(cap["pwr"][k] / target_w)
+            elif cap["spd"][k] is not None and spd_thr:
+                margins.append(cap["spd"][k] / spd_thr)
+    frac = sup / tot if tot else 0.0
+    return frac, (sum(margins) / len(margins) if margins else 0.0)
+
+
+def _apply_support(blocks, cap, target_w, spd_thr):
+    """Re-score the (length-viable) road blocks so YOUR history decides which one
+    an effort lands on: score becomes the supported fraction (0-100), with the
+    road score kept only as a small tiebreak. Returns (blocks, learned?)."""
+    if not cap or (not cap["n_spd"] and not cap["n_pwr"]):
+        return blocks, False
+    out = []
+    for b in blocks:
+        frac, mg = _block_support(b, cap, target_w, spd_thr)
+        nb = dict(b)
+        nb["hist_frac"] = round(frac, 2)
+        nb["score"] = round(frac * 100 + min(9.0, b.get("score", 0) / 12), 1)
+        out.append(nb)
+    return out, True
+
+
+def _supported_frac(segs, cap, target_w, thr):
+    """Fraction of placed work distance that sits on history-supported bins."""
+    bk, n = cap["bin_km"], len(cap["spd"])
+    tot = sup = 0.0
+    for s in segs:
+        if s.get("kind") != "work":
+            continue
+        for k in range(max(0, int(s["a"] / bk)), min(n, int(s["b"] / bk) + 1)):
+            tot += 1
+            if _bin_supported(cap, k, target_w, thr):
+                sup += 1
+    return (sup / tot) if tot else 0.0
+
+
 def route_context(gpx_path: str, haz_file: str, cleared_km=None) -> dict:
     """Run all analysis layers for a route ONCE. The result depends only on the
     GPX + the athlete's cleared corrections, so callers cache it per session —
@@ -200,6 +287,10 @@ def design(gpx_path: str, objective: str, ftp: int, haz_file: str,
     segs: list[dict] = []
     rep_no = 0
     is_steady = sess.get("steady") or "reps" not in sess
+    gated = False
+    cap = None
+    target_w = 0
+    spd_thr = None
 
     if objective == "endurance" and is_steady:
         wu = round(min(5.0, rkm * 0.08), 1)
@@ -217,7 +308,19 @@ def design(gpx_path: str, objective: str, ftp: int, haz_file: str,
         work_pct = sess["work_pct"] if objective != "endurance" else SURGE_PCT
         rest_pct = sess.get("rest_pct", BRIDGE_PCT)
 
-        groups = _plan_placement(blocks, rkm, reps, work_km, rest_km)
+        # GATE placement by learned capability: efforts land on the road block YOUR
+        # rides most support (power where measured >= target, else effort-holdable
+        # speed). Uses the length-viable road blocks as the substrate so placement
+        # stays bounded; history decides which one wins. Road quality is the
+        # fallback when no ride history covers the route.
+        lo, hi = syntax._pct_lo_hi(work_pct)
+        target_w = round((lo + hi) / 2 / 100.0 * ftp) if ftp else 0
+        cap = _capability(gpx_path) if gpx_path else None
+        spd_thr = _spd_bar(cap) if cap else None
+        gate_blocks, gated = _apply_support(blocks, cap, target_w, spd_thr) if cap \
+            else (blocks, False)
+
+        groups = _plan_placement(gate_blocks, rkm, reps, work_km, rest_km)
         placed = sum(r for _, r in groups)
         # reps the last group absorbed beyond its block's clean capacity spill
         # past the block end onto unvetted road — surfaced as a warning below
@@ -268,6 +371,22 @@ def design(gpx_path: str, objective: str, ftp: int, haz_file: str,
                        "msg": f"{overflow} effort(s) don't fit inside the clean block "
                               f"km {lb['start_km']}-{lb['end_km']} and extend beyond it — "
                               "check the map before pushing"})
+    # fit check: how much of the placed work your ride history actually supports
+    if not is_steady and gated and cap:
+        frac = _supported_frac(segs, cap, target_w, spd_thr)
+        bar = (f"≥{target_w} W where measured, else ≥{spd_thr:.0f} km/h"
+               if cap["n_pwr"] else f"≥{spd_thr:.0f} km/h")
+        issues.append({
+            "level": "warn" if frac < 0.5 else "info",
+            "msg": f"Placement learned from {cap['n_spd']} of your rides"
+                   + (f" ({cap['n_pwr']} with power)" if cap["n_pwr"] else "")
+                   + f" — efforts sit on the stretches you most often hold {bar}. "
+                   + f"{round(frac * 100)}% of the work distance is history-supported"
+                   + ("." if frac >= 0.5 else "; consider a shorter/easier session for this route.")})
+    elif not is_steady and not gated:
+        issues.append({"level": "info",
+                       "msg": "No ride history covers this route yet — placement used road "
+                              "quality. Add rides via “Refresh ride history” to learn placement."})
     load = _estimate_load(segs, ftp)
     evidence = _evidence(segs, comp)
     if not title:
