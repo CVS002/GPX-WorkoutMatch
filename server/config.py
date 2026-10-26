@@ -59,6 +59,9 @@ ICU_ATHLETE_ID = os.environ.get("ICU_ATHLETE_ID", "0")
 # --- Server ---
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8712"))
+# Hosted deploys: set this so the app (which holds your intervals.icu key) asks
+# for a password. Empty = open, which is only safe on localhost.
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 
 # --- Design constants ---
 REF_SPEED_KMH = float(os.environ.get("REF_SPEED_KMH", "30"))   # min<->km reference

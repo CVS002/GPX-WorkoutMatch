@@ -1,0 +1,19 @@
+{
+  "name": "gpx-workout-designer",
+  "private": true,
+  "type": "module",
+  "description": "Route-matched structured cycling workouts — Netlify Functions + Blobs backend, vanilla JS frontend in web/.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "sh test/parity/run.sh"
+  },
+  "dependencies": {
+    "@netlify/blobs": "11.1.4",
+    "@netlify/functions": "6.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

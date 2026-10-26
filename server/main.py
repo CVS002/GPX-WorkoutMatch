@@ -5,12 +5,14 @@ Flow (strict order; the map is reviewed BEFORE any date):
   -> date + push. No LLM anywhere; intervals.icu via REST.
 """
 import uuid
+import base64
+import secrets
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -31,6 +33,25 @@ async def _no_store(request, call_next):
     if p == "/" or p.endswith((".css", ".js", ".html")):
         resp.headers["Cache-Control"] = "no-store, must-revalidate"
     return resp
+
+
+@app.middleware("http")
+async def _password(request, call_next):
+    """Hosted deploys: with APP_PASSWORD set, every request needs HTTP Basic auth
+    (any username) so strangers can't read your intervals.icu data or push to
+    your calendar. /api/health stays open for the host's health check."""
+    if not config.APP_PASSWORD or request.url.path == "/api/health":
+        return await call_next(request)
+    auth = request.headers.get("authorization", "")
+    if auth[:6].lower() == "basic ":
+        try:
+            pw = base64.b64decode(auth[6:]).decode("utf-8").partition(":")[2]
+        except ValueError:          # bad base64 / not UTF-8
+            pw = ""
+        if secrets.compare_digest(pw.encode(), config.APP_PASSWORD.encode()):
+            return await call_next(request)
+    return Response(status_code=401,
+                    headers={"WWW-Authenticate": 'Basic realm="GPX Workout Designer"'})
 
 
 # route_id -> session state (in-memory; single-user local app)

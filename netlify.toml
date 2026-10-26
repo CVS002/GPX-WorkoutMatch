@@ -1,0 +1,15 @@
+# GPX Workout Designer on Netlify: the static UI in web/ plus the API as
+# Netlify Functions (netlify/functions → src/), state in Netlify Blobs.
+# Secrets (ICU_API_KEY, ICU_ATHLETE_ID, APP_PASSWORD) go in the site's
+# environment variables, never in this file. See docs/DEPLOY.md.
+[build]
+  publish = "web"
+  command = "npm run typecheck"
+
+[functions]
+  directory = "netlify/functions"
+
+[dev]
+  framework = "#static"
+  publish = "web"
+  port = 8888

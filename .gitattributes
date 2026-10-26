@@ -1,2 +1,4 @@
 # Normalise line endings so the repo stays consistent across Windows/macOS/Linux.
 * text=auto
+# Shell scripts run inside Linux containers / Netlify builds: keep LF even on Windows.
+*.sh text eol=lf
